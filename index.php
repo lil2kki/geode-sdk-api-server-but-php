@@ -27,7 +27,7 @@ function route($method, $uri) {
     // UI routes
     if ($uri === '/' && $method === 'GET') return handle_home();
     if ($uri === '/ui' && $method === 'GET') return render_ui();
-    if ($uri === '/developers' && $method === 'GET') return render_ui();
+    if ($uri === '/developers' && $method === 'GET') return render_devs();
     if ($uri === '/login' && $method === 'GET') return handle_login();
     if ($uri === '/callback' && $method === 'GET') return handle_callback();
     if ($uri === '/logout' && $method === 'GET') return handle_logout();
@@ -1120,6 +1120,8 @@ function api_mods_update_owner($id) {
                 }
             }
 
+            if (isset($body['prefer_github_info'])) $mods[$i]['prefer_github_info'] = (bool)$body['prefer_github_info'];
+
             if (!empty($body['download_link'])) {
                 $meta = extract_metadata_from_geode($body['download_link']);
                 if ($meta === null || empty($meta['modjson'])) {
@@ -1642,6 +1644,58 @@ function api_stats() {
 /* ======================= UI renderers ======================= */
 function handle_home() { header('Location: /ui'); exit; }
 
+function asAPIReqForm() { return ("
+<script>
+document.querySelector('form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    let a = this.querySelector('button[type=\"submit\"]');
+    if (!a) a = this.querySelector('button');
+    
+    a.parentElement.className += ' disabled placeholder-glow';
+    a.parentElement.style.opacity = '0.5';
+    a.className += ' disabled placeholder';
+    a.disabled = true;
+
+    let formData = new FormData(this);
+
+    fetch(this.action, {
+        method: this.method,
+        body: formData
+    })
+    .then(async response => {
+        let data;
+        try { data = await response.json(); } 
+        catch (e) { throw new Error('Invalid JSON'); }
+        
+        if (!response.ok) { 
+            let errorMsg = data.error || 'Server error (HTTP ' + response.status + ')';
+            throw new Error(errorMsg);
+        }
+        return data;
+    })
+    .then(data => {
+        if (data.error && data.error.trim() !== '') {
+            alert('Error: ' + data.error);
+            a.parentElement.className = a.parentElement.className.replace(/ disabled placeholder-glow/g, '').trim();
+            a.parentElement.style.opacity = '1';
+            a.className = a.className.replace(/ disabled placeholder/g, '').trim();
+            a.disabled = false;
+        } else {
+            window.location.reload();
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error.message);
+        a.parentElement.className = a.parentElement.className.replace(/ disabled placeholder-glow/g, '').trim();
+        a.parentElement.style.opacity = '1';
+        a.className = a.className.replace(/ disabled placeholder/g, '').trim();
+        a.disabled = false;
+    });
+});
+</script>
+"); }
+
 function ui_header($title = 'Main') {
     $user = current_user();
     $is_admin = is_admin();
@@ -1697,7 +1751,7 @@ function ui_header($title = 'Main') {
     .card-pre{white-space:pre-wrap;}
   </style>
 </head>
-<body style="padding-top: 80px;">
+<body style="padding-top: 80px; min-height: 100vh; display: flex;    flex-direction: column;">
     <nav class="navbar fixed-top navbar-expand-lg border-bottom px-4 bg-black">
         <a class="navbar-brand" href="/ui">Open Geode Index</a>
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#mainNavbar" aria-controls="mainNavbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -1705,6 +1759,7 @@ function ui_header($title = 'Main') {
         </button>
         <div class="collapse navbar-collapse" id="mainNavbar" style="justify-content: space-between;">
             <ul class="navbar-nav mr-auto">
+            <li class="nav-item"><a class="nav-link" href="/developers">Users</a></li>
             <?php if ($is_admin): ?><li class="nav-item"><a class="nav-link" href="/ui/admin">Admin</a></li><?php endif; ?>
             </ul>
             <div class="form-inline my-2 my-lg-0" style="display: flex;align-items: center;">
@@ -1766,7 +1821,7 @@ function render_ui() {
                 <input id="download_link" name="download_link" class="form-control" placeholder="https://github.com/.../releases/download/vX.Y/file.geode" required>
             </div>
             <button class="w-100 btn btn-primary">Submit</button>
-            </form>
+            </form><?=asAPIReqForm()?>
         <?php endif; ?>
     </div>
   
@@ -1829,21 +1884,57 @@ function render_ui() {
     ui_footer();
 }
 
+
+function render_devs() {
+    $developers = db_read('developers.json') ?: [];
+    $user = current_user();
+    ui_header('Users - Open Geode Index');
+    ?>
+    <div class="row px-3" style="
+        /* flex-flow: wrap-reverse; */
+        justify-content: space-around;
+        align-items: center;
+        align-items: stretch;
+        display: flex;
+    ">
+      <?php if (empty($developers)): ?>
+        <div class="col-12"><div class="alert alert-danger">But nobody came.</div></div>
+      <?php else: foreach ($developers as $dev): ?>
+        <div style="text-align: center; <?php if ($dev['username'] === $user): ?> order: -1; <?php endif; ?>" class="col-sm-4 col-lg-2 p-2">
+          <div class="card h-100 pt-3 <?php if ($dev['username'] === $user): ?> bg-gradient <?php endif; ?>">
+            <img class="card-img-top" src="https://github.com/<?=htmlspecialchars($dev['username'])?>.png" alt="logo" style="object-fit:scale-down;height:140px;" onerror="this.style.display='none'">
+            <div class="card-body d-flex flex-column">
+              <h5 class="card-title mb-1">
+                <a target="_blank" href="https://github.com/<?=htmlspecialchars($dev['username'])?>" class="link-body-emphasis link-offset-2 link-underline-opacity-25 link-underline-opacity-75-hover">
+                    <?=htmlspecialchars($dev['display_name'])?>
+                </a>
+              </h5>
+              <p class="card-text text-muted"><?=htmlspecialchars($dev['username'])?></p>
+            </div>
+          </div>
+        </div>
+      <?php endforeach; endif; ?>
+    </div>
+<?php
+    ui_footer();
+}
+
 function render_mod_page($id) {
     $mods = db_read('mods.json') ?: [];
     $mod = null;
     foreach ($mods as $m) if ($m['id'] === $id) { $mod = $m; break; }
-    if (!$mod) { http_response_code(404); echo "<h1>Mod not found</h1>"; exit; }
-    $user = current_user(); $is_admin = is_admin();
+    $user = current_user(); 
+    $is_admin = is_admin();
 
-    if (empty($mod['about']) && !empty($mod['repo'])) {
-        $text = fetch_github_raw_text($mod['repo'], 'about.md');
-        if ($text === null) $text = fetch_github_raw_text($mod['repo'], 'README.md');
+    ui_header($id . ' - Open Geode Index');
+
+    if (!$mod) { http_response_code(404); echo "<script>window.location.replace('https://geode-sdk.org/mods/".$id."');</script>"; exit; }
+
+    if ((empty($mod['about']) or !empty($mod['prefer_github_info'])) && !empty($mod['repo'])) {
+        $text = fetch_github_raw_text($mod['repo'], 'README.md');
+        if ($text === null) $text = fetch_github_raw_text($mod['repo'], 'about.md');
         if ($text !== null) $mod['about'] = $text;
     }
-
-    ui_header($mod['id'] . ' - Open Geode Index');
-    $tags_csv = !empty($mod['tags']) && is_array($mod['tags']) ? implode(', ', $mod['tags']) : '';
     ?>
 <div class="row">
   <div class="col-md-8">
@@ -1891,11 +1982,37 @@ function render_mod_page($id) {
     </ul>
 
     <h5>Developers</h5>
-    <ul>
+    <div>
       <?php foreach ($mod['developers'] as $d): ?>
-        <li><?=htmlspecialchars($d['username'] ?? $d['display_name'])?> <?=!empty($d['is_owner']) ? '<span class="badge badge-secondary">owner</span>' : ''?></li>
+        <div class="card <?php if ($d['username'] === $user): ?>bg-gradient<?php endif; ?>">
+            <div style="display: flex;">
+                <img id="ic-<?=htmlspecialchars($d['username'])?>" src="https://github.com/<?=htmlspecialchars($d['username'])?>.png" class="rounded-start" style="height: 70px;" alt="<?=htmlspecialchars($d['username'])?>">
+                <img id="ic-<?=htmlspecialchars($d['display_name'])?>" class="rounded-start" style="height: 70px; display: none;" 
+                    src="https://github.com/<?=htmlspecialchars($d['display_name'])?>.png" 
+                    alt="<?=htmlspecialchars($d['display_name'])?>" 
+                    onload="
+                        this.style.display='block'; 
+                        document.getElementById('ic-<?=htmlspecialchars($d['username'])?>').style.display='none';
+                        document.getElementById('a-<?=htmlspecialchars($d['display_name'])?>').href='https://github.com/<?=htmlspecialchars($d['display_name'])?>';
+                    "
+                >
+                <div class="border-start border-2">
+                    <div class="card-body p-1 px-2 pt-2">
+                        <h5 class="card-title">
+                            <a id="a-<?=htmlspecialchars($d['display_name'])?>" target="_blank" href="https://github.com/<?=htmlspecialchars($d['username'])?>" class="link-body-emphasis link-offset-2 link-underline-opacity-25 link-underline-opacity-75-hover">
+                                <?=htmlspecialchars($d['display_name'])?>
+                            </a>
+                        </h5>
+                        <p class="card-text text-body-secondary">
+                            <?=htmlspecialchars($d['username'])?> 
+                            <?=!empty($d['is_owner']) ? '<a href="https://github.com/'.htmlspecialchars($d['username']).'" class="link-info link-underline-opacity-50">[puplisher]</a>' : ''?>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
       <?php endforeach; ?>
-    </ul>
+    </div>
 	
 	<hr>
 	
@@ -1915,17 +2032,25 @@ function render_mod_page($id) {
                 <h6>Update</h6>
 
                 <div class="form-group my-2">
-                <label>Owner display name</label>
-                <input name="owner_display_name" class="form-control" value="<?=htmlspecialchars($owner_display)?>">
+                    <label for="prefer_github_info">Text source preference:</label>
+                    <select id="prefer_github_info" name="prefer_github_info" class="form-control">
+                        <option value="0" <?=empty($mod['prefer_github_info']) ? 'selected' : ''?>>From .geode file</option>
+                        <option value="1" <?=!empty($mod['prefer_github_info']) ? 'selected' : ''?>>From GitHub Repository</option>
+                    </select>
                 </div>
 
                 <div class="form-group my-2">
-                <label>Download link</label>
-                <input name="download_link" class="form-control">
+                    <label for="owner_display_name">Owner display name</label>
+                    <input id="owner_display_name" name="owner_display_name" class="form-control" value="<?=htmlspecialchars($owner_display)?>">
+                </div>
+
+                <div class="form-group my-2">
+                    <label for="download_link">Download link</label>
+                    <input id="download_link" name="download_link" class="form-control">
                 </div>
 
                 <button class="w-100 btn btn-primary btn-block">Submit</button>
-            </form>
+            </form><?=asAPIReqForm()?>
             </div>
         </div>
     <?php endif; ?>
@@ -1945,17 +2070,13 @@ function render_mod_page($id) {
     <?php if (is_admin()): ?>
       <div class="card">
         <div class="card-body">
-          <h5 class="card-title">Admin actions</h5>
           <form method="post" action="/ui/admin">
             <input type="hidden" name="action" value="toggle_featured">
             <input type="hidden" name="modid" value="<?=htmlspecialchars($mod['id'])?>">
-            <div class="form-group my-2">
-              <label>Featured</label>
-              <select name="featured" class="form-control">
-                <option value="0" <?=empty($mod['featured']) ? 'selected' : ''?>>No</option>
-                <option value="1" <?=!empty($mod['featured']) ? 'selected' : ''?>>Yes</option>
-              </select>
-            </div>
+            <select name="featured" class="form-control my-1">
+                <option value="0" <?=empty($mod['featured']) ? 'selected' : ''?>>Featured: No</option>
+                <option value="1" <?=!empty($mod['featured']) ? 'selected' : ''?>>Featured: Yes</option>
+            </select>
             <button class="w-100 btn btn-danger btn-block">Apply</button>
           </form>
         </div>
@@ -2033,7 +2154,7 @@ function render_admin_page() {
         <?php foreach ($devs as $d): ?>
           <tr>
             <td><?=htmlspecialchars($d['id'])?></td>
-            <td><a href="https://github.com/<?=htmlspecialchars($d['username'])?>" target="_blank"><?=htmlspecialchars($d['username'])?></a></td>
+            <td><a target="_blank" href="https://github.com/<?=htmlspecialchars($d['username'])?>" target="_blank"><?=htmlspecialchars($d['username'])?></a></td>
             <td><?=htmlspecialchars($d['display_name'])?></td>
             <td><?=!empty($d['verified']) ? 'yes' : 'no'?></td>
             <td><?=!empty($d['admin']) ? 'yes' : 'no'?></td>
@@ -2230,4 +2351,5 @@ function handle_logout() {
     exit;
 }
 
+/* ======================= END OF FILE ======================= */
 ?>
