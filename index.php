@@ -28,6 +28,7 @@ function route($method, $uri) {
     if ($uri === '/' && $method === 'GET') return handle_home();
     if ($uri === '/ui' && $method === 'GET') return render_ui();
     if ($uri === '/developers' && $method === 'GET') return render_devs();
+    if ($uri === '/install' && $method === 'GET') return render_install();
     if ($uri === '/login' && $method === 'GET') return handle_login();
     if ($uri === '/callback' && $method === 'GET') return handle_callback();
     if ($uri === '/logout' && $method === 'GET') return handle_logout();
@@ -578,15 +579,15 @@ function mod_for_public($mod) {
 }
 
 function fetch_upstream_json($path, $query = []) {
-    $override = null;
-    $hdrs = getallheaders_lower();
-    if (!empty($hdrs['x-upstream-url'])) $override = $hdrs['x-upstream-url'];
-
     $base = defined('UPSTREAM_URL') ? UPSTREAM_URL : 'https://api.geode-sdk.org';
 
     //echo("base = ".print_r($base, true)."\n");
 
     $url = $base . '/' . ltrim($path, '/');
+
+    $override = null;
+    $hdrs = getallheaders_lower();
+    if (!empty($hdrs['x-upstream-url'])) $override = $hdrs['x-upstream-url'];
     if (!empty($override)) if (stripos($override, 'http') === 0) $url = $override;
 
     if (!empty($query)) $url .= (strpos($url, '?') === false ? '?' : '&') . http_build_query($query);
@@ -1050,12 +1051,22 @@ function api_mods_create() {
 
 function api_mods_get($id) {
     $mods = db_read('mods.json') ?: [];
-    foreach ($mods as $m) {
-        if ($m['id'] === $id) return json_response(['error' => '', 'payload' => mod_for_public($m)]);
+    foreach ($mods as $m) if ($m['id'] === $id) {
+        if ((empty($m['about']) or !empty($m['prefer_github_info'])) && !empty($m['repo'])) {
+            $text = fetch_github_raw_text($m['repo'], 'about.md');
+            if ($text === null) $text = fetch_github_raw_text($m['repo'], 'README.md');
+            if ($text !== null) $m['about'] = $text;
+        }
+        if ((empty($m['changelog']) or !empty($m['prefer_github_info'])) && !empty($m['repo'])) {
+            $text = fetch_github_raw_text($m['repo'], 'changelog.md');
+            if ($text === null) $text = fetch_github_raw_text($m['repo'], 'CHANGELOG.md');
+            if ($text !== null) $m['changelog'] = $text;
+        }
+        return json_response(['error' => '', 'payload' => mod_for_public($m)]);
     }
 
     // fallback to upstream
-    if (defined('UPSTREAM_API') && UPSTREAM_API) {
+    if (defined('UPSTREAM_URL') && UPSTREAM_URL) {
         $up = fetch_upstream_json("/v1/mods/" . rawurlencode($id));
         if ($up && isset($up['error']) && $up['error'] === '' && !empty($up['payload'])) {
             return json_response(['error' => '', 'payload' => $up['payload']]);
@@ -1453,8 +1464,14 @@ function api_mod_logo($modid) {
         }
     }
 
-    if (defined('UPSTREAM_API') && UPSTREAM_API) {
-        $url = UPSTREAM_API . '/v1/mods/' . rawurlencode($modid) . '/logo';
+    if (defined('UPSTREAM_URL') && UPSTREAM_URL) {
+        $url = UPSTREAM_URL . '/v1/mods/' . rawurlencode($modid) . '/logo';
+
+        $override = null;
+        $hdrs = getallheaders_lower();
+        if (!empty($hdrs['x-upstream-url'])) $override = $hdrs['x-upstream-url'];
+        if (!empty($override)) if (stripos($override, 'http') === 0) $url = $override;
+
         if (@file_get_contents($url)) {
             header('Location: '.$url); exit(); 
         }
@@ -1473,6 +1490,17 @@ function api_mod_versions_index($modid) {
             return json_response(['error' => '', 'payload' => $out]);
         }
     }
+
+    // fallback to upstream
+    if (defined('UPSTREAM_URL') && UPSTREAM_URL) {
+        $up = fetch_upstream_json("/v1/mods/" . rawurlencode($modid) . "/versions");
+        if ($up && isset($up['error']) && $up['error'] === '' && !empty($up['payload'])) {
+            return json_response(['error' => '', 'payload' => $up['payload']]);
+        }
+        // propagate upstream 404 as local 404
+        if ($up === null) return json_response(['error' => 'upstream unavailable', 'payload' => null], 502);
+    }
+
     json_response(['error' => 'mod not found', 'payload' => null], 404);
 }
 function api_mod_versions_create($modid) {
@@ -1545,7 +1573,7 @@ function api_mod_versions_get($modid, $version) {
     }
 
     // fallback to upstream
-    if (defined('UPSTREAM_API') && UPSTREAM_API) {
+    if (defined('UPSTREAM_URL') && UPSTREAM_URL) {
         $up = fetch_upstream_json("/v1/mods/" . rawurlencode($modid) . "/versions/" . rawurlencode($version));
         if ($up && isset($up['error']) && $up['error'] === '' && !empty($up['payload'])) {
             // upstream already returns a version object; return it as-is
@@ -1642,21 +1670,16 @@ function api_mod_versions_download($modid, $version) {
         }
     }
 
-    // not found locally — try upstream updates / specific version
-    $upv = fetch_upstream_json("/v1/mods/{$modid}/versions/{$version}");
-    if ($upv && isset($upv['error']) && $upv['error'] === '' && !empty($upv['payload'])) {
-        $uv = $upv['payload'];
-        $up_link = !empty($uv['download_link']) ? $uv['download_link'] : null;
-        if ($up_link) {
-            $res2 = resolve_final_url($up_link);
-            if (!empty($res2['url']) && $res2['code'] !== null && $res2['code'] >= 200 && $res2['code'] < 400) {
-                // increment nothing locally (mod not present), just redirect
-                header('Location: ' . $res2['url'], true, 302);
-                exit;
-            } else {
-                header('Location: ' . $up_link, true, 302);
-                exit;
-            }
+    if (defined('UPSTREAM_URL') && UPSTREAM_URL) {
+        $url = UPSTREAM_URL . '/v1/mods/' . rawurlencode($modid) . "/versions/" . $version . "/download";
+
+        $override = null;
+        $hdrs = getallheaders_lower();
+        if (!empty($hdrs['x-upstream-url'])) $override = $hdrs['x-upstream-url'];
+        if (!empty($override)) if (stripos($override, 'http') === 0) $url = $override;
+
+        if (@file_get_contents($url)) {
+            header('Location: '.$url); exit(); 
         }
     }
 
@@ -1786,16 +1809,22 @@ function ui_header($title = 'Main') {
     .card-pre{white-space:pre-wrap;}
   </style>
 </head>
-<body style="padding-top: 80px; min-height: 100vh; display: flex;    flex-direction: column;">
+<body style="padding-top: 80px;;">
     <nav class="navbar fixed-top navbar-expand-lg border-bottom px-4 bg-black">
         <a class="navbar-brand" href="/ui">Open Geode Index</a>
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#mainNavbar" aria-controls="mainNavbar" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="mainNavbar" style="justify-content: space-between;">
-            <ul class="navbar-nav mr-auto">
-            <li class="nav-item"><a class="nav-link" href="/developers">Users</a></li>
-            <?php if ($is_admin): ?><li class="nav-item"><a class="nav-link" href="/ui/admin">Admin</a></li><?php endif; ?>
+            <ul class="navbar-nav nav-underline mr-auto">
+
+                <li class="nav-item"><a class="nav-link <?php if ($title == "Installing Open Geode Index..."): ?>active<?php endif; ?>" href="/install">How to install</a></li>
+                <li class="nav-item"><a class="nav-link <?php if ($title == "Users - Open Geode Index"): ?>active<?php endif; ?>" href="/developers">Users</a></li>
+
+                <?php if ($is_admin): ?>
+                <li class="nav-item"><a class="nav-link <?php if ($title == "Admin - Open Geode Index"): ?>active<?php endif; ?>" href="/ui/admin">Admin</a></li>
+                <?php endif; ?>
+
             </ul>
             <div class="form-inline my-2 my-lg-0" style="display: flex;align-items: center;">
             <?php if ($user): ?>
@@ -1807,7 +1836,7 @@ function ui_header($title = 'Main') {
             </div>
         </div>
     </nav>
-    <div class="container py-3 border border-bottom-0 rounded-top mt-auto" style="backdrop-filter: brightness(0.7);">
+    <div class="container py-3 mb-3 border rounded" style="backdrop-filter: brightness(0.7);">
     <?php
 }
 
@@ -1950,6 +1979,35 @@ function render_devs() {
         </div>
       <?php endforeach; endif; ?>
     </div>
+<?php
+    ui_footer();
+}
+
+function render_install() {
+    $developers = db_read('developers.json') ?: [];
+    $user = current_user();
+    ui_header('Installing Open Geode Index...');
+    ?>
+<h3>Android Geode Launcher + Installer</h3>
+<p class="text-muted col-md-6">If you have any issues with Android file systyem instal custom <b>Geode Launcher</b> that <b>preinstall Open Geode Index</b> mod on first launch.</p>
+<a class="btn btn-primary" href="https://raw.githubusercontent.com/lil2kki/Open-Geode-Index/HEAD/installer.apk">Download Custom Geode Launcher</a>
+<hr>
+<div class="row">
+    <div class="col-md-6 fs-5">
+        <?=md('
+<h3>Manual Mod Install (All Platforms)</h3>
+
+- Download latest version of mod: <a class="btn btn-primary btn-sm" href="https://github.com/lil2kki/Open-Geode-Index/releases/latest/download/lil2kki.open-geode-index.geode">lil2kki.open-geode-index.geode</a>
+- Open Geode Loader Settings
+- Click the "Install From File" button
+- Select downloaded file and confirm
+
+        ')?>
+    </div>
+    <div class="col-md-6">
+        <img style="max-width: 100%;" alt="image" src="https://github.com/user-attachments/assets/dc4987df-b2fa-430f-8610-66bf4ce64862"/>
+    </div>
+</div>
 <?php
     ui_footer();
 }
