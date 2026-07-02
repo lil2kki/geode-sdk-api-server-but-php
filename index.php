@@ -1988,14 +1988,10 @@ function render_install() {
     $user = current_user();
     ui_header('Installing Open Geode Index...');
     ?>
-<h3>Android Geode Launcher + Installer</h3>
-<p class="text-muted col-md-6">If you have any issues with Android file systyem instal custom <b>Geode Launcher</b> that <b>preinstall Open Geode Index</b> mod on first launch.</p>
-<a class="btn btn-primary" href="https://raw.githubusercontent.com/lil2kki/Open-Geode-Index/HEAD/installer.apk">Download Custom Geode Launcher</a>
-<hr>
 <div class="row">
     <div class="col-md-6 fs-5">
         <?=md('
-<h3>Manual Mod Install (All Platforms)</h3>
+<h3>How to install the mod:</h3>
 
 - Download latest version of mod: <a class="btn btn-primary btn-sm" href="https://github.com/lil2kki/Open-Geode-Index/releases/latest/download/lil2kki.open-geode-index.geode">lil2kki.open-geode-index.geode</a>
 - Open Geode Loader Settings
