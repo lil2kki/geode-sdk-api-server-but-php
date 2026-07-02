@@ -578,9 +578,19 @@ function mod_for_public($mod) {
 }
 
 function fetch_upstream_json($path, $query = []) {
-    $base = rtrim(UPSTREAM_API, '/');
+    // allow override via query param UPSTREAM_URL or header X-Upstream-Url for proxy mod
+    $override = null;
+    if (!empty($_GET['UPSTREAM_URL'])) $override = trim((string)$_GET['UPSTREAM_URL']);
+    $hdrs = getallheaders_lower();
+    if (empty($override) && !empty($hdrs['x-upstream-url'])) $override = trim((string)$hdrs['x-upstream-url']);
+
+    $base = defined('UPSTREAM_URL') ? UPSTREAM_URL : 'https://api.geode-sdk.org';
+    if (!empty($override)) {
+        // basic validation: must start with http
+        if (stripos($override, 'http') === 0) $base = rtrim($override, '/');
+    }
     $url = $base . '/' . ltrim($path, '/');
-    if (!empty($query)) $url .= '?' . http_build_query($query);
+    if (!empty($query)) $url .= (strpos($url, '?') === false ? '?' : '&') . http_build_query($query);
     $opts = ['http' => ['method' => 'GET', 'header' => "User-Agent: Open-Geode-Index-PHP\r\nAccept: application/json\r\n", 'timeout' => 8]];
     $ctx = stream_context_create($opts);
     $res = @file_get_contents($url, false, $ctx);
@@ -1230,15 +1240,20 @@ function api_mods_delete($id) {
     }
     return json_response(['error' => 'mod not found', 'payload' => null], 404);
 }
-
 function api_mods_updates() {
     $q = $_GET;
-
     if (empty($q['ids'])) return json_response(['error' => 'bad request - ids required', 'payload' => null], 400);
+
+    $up = fetch_upstream_json('/v1/mods/updates', $q);
+    $up_payload = ['deprecations' => [], 'updates' => []];
+    if ($up && isset($up['error']) && $up['error'] === '' && isset($up['payload'])) {
+        $up_payload = $up['payload'];
+        if (!isset($up_payload['deprecations'])) $up_payload['deprecations'] = [];
+        if (!isset($up_payload['updates'])) $up_payload['updates'] = [];
+    }
 
     $raw = (string)$q['ids'];
     $ids = array_values(array_filter(array_map('trim', preg_split('/[;,]+/', $raw))));
-
     $client_geode = isset($q['geode']) ? (string)$q['geode'] : null;
     $client_gd = isset($q['gd']) ? (string)$q['gd'] : null;
     $platform = isset($q['platform']) ? (string)$q['platform'] : (isset($q['platforms']) ? (string)$q['platforms'] : null);
@@ -1247,20 +1262,15 @@ function api_mods_updates() {
     $deprec = db_read('deprecations.json') ?: [];
 
     $mods_index = [];
-    foreach ($mods as $m) {
-        if (!empty($m['id'])) $mods_index[$m['id']] = $m;
-    }
+    foreach ($mods as $m) if (!empty($m['id'])) $mods_index[$m['id']] = $m;
 
-    $out_deprec = array_values(array_filter($deprec, function ($d) use ($ids) {
+    $local_deprec = array_values(array_filter($deprec, function ($d) use ($ids) {
         return isset($d['mod_id']) && in_array($d['mod_id'], $ids);
     }));
 
-    $updates = [];
-
+    $local_updates = [];
     foreach ($ids as $id) {
-        if (!isset($mods_index[$id])) {
-            continue;
-        }
+        if (!isset($mods_index[$id])) continue;
         $mod = $mods_index[$id];
 
         $chosen = null;
@@ -1273,7 +1283,7 @@ function api_mods_updates() {
                     if (version_compare($v_geode, $client_geode, '>')) continue;
                 }
 
-                $v_gd = isset($v['gd']) ? $v['gd'] : null; // could be array or null
+                $v_gd = isset($v['gd']) ? $v['gd'] : null;
                 if (!empty($client_gd) && !empty($v_gd) && is_array($v_gd)) {
                     $compatible_gd = true;
                     if ($platform) {
@@ -1282,11 +1292,9 @@ function api_mods_updates() {
                             if ($req !== '*' && $req !== '') {
                                 if (version_compare($req, $client_gd, '>')) $compatible_gd = false;
                             }
-                        } else {
-                            $compatible_gd = true;
                         }
                     } else {
-                        foreach ($v_gd as $k => $req) {
+                        foreach ($v_gd as $req) {
                             if ($req === '*' || $req === '') continue;
                             if (!empty($client_gd) && version_compare((string)$req, $client_gd, '>')) { $compatible_gd = false; break; }
                         }
@@ -1299,22 +1307,48 @@ function api_mods_updates() {
             }
         }
 
-        if ($chosen === null) {
-            continue;
-        }
+        if ($chosen === null) continue;
 
-        $updates[] = [
+        $local_updates[] = [
             'id' => $mod['id'],
             'version' => $chosen['version'] ?? '',
             'download_link' => $chosen['download_link'] ?? '',
             'dependencies' => isset($chosen['dependencies']) && is_array($chosen['dependencies']) ? $chosen['dependencies'] : [],
             'incompatibilities' => isset($chosen['incompatibilities']) && is_array($chosen['incompatibilities']) ? $chosen['incompatibilities'] : [],
-            'gd' => isset($chosen['gd']) ? expand_gd_platforms($chosen['gd']) : null,
+            'gd' => isset($chosen['gd']) ? (is_array($chosen['gd']) ? $chosen['gd'] : null) : null,
             'replacement' => null
         ];
     }
 
-    json_response(['error' => '', 'payload' => ['deprecations' => $out_deprec, 'updates' => $updates]], 200);
+    $merged_updates = [];
+    $up_index = [];
+    foreach ($up_payload['updates'] as $u) if (!empty($u['id'])) $up_index[$u['id']] = $u;
+    
+    foreach ($up_payload['updates'] as $u) $merged_updates[$u['id']] = $u;
+    foreach ($local_updates as $lu) $merged_updates[$lu['id']] = $lu; // overwrites if present
+    
+    $final_updates = [];
+
+    foreach ($up_payload['updates'] as $u) {
+        if (isset($merged_updates[$u['id']])) {
+            $final_updates[] = $merged_updates[$u['id']];
+            unset($merged_updates[$u['id']]);
+        }
+    }
+    
+    foreach ($merged_updates as $rem) $final_updates[] = $rem;
+
+    $all_deprec = array_merge($up_payload['deprecations'], $local_deprec);
+    $seen = [];
+    $final_deprec = [];
+    foreach ($all_deprec as $d) {
+        $key = (isset($d['mod_id']) ? $d['mod_id'] : '') . '|' . (isset($d['id']) ? $d['id'] : md5(json_encode($d)));
+        if (isset($seen[$key])) continue;
+        $seen[$key] = true;
+        $final_deprec[] = $d;
+    }
+
+    json_response(['error' => '', 'payload' => ['deprecations' => $final_deprec, 'updates' => array_values($final_updates)]], 200);
 }
 
 /* ======================= API: deprecations ======================= */
@@ -1682,6 +1716,7 @@ document.querySelector('form').addEventListener('submit', function(e) {
             a.className = a.className.replace(/ disabled placeholder/g, '').trim();
             a.disabled = false;
         } else {
+            alert('Request successful :D');
             window.location.reload();
         }
     })
