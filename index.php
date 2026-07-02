@@ -168,7 +168,7 @@ function fetch_remote_file_to_temp($url, $max_bytes = 120 * 1024 * 1024, $timeou
     $opts = [
         'http' => [
             'method'        => 'GET',
-            'header'        => "User-Agent: Open-Geode-Index-PHP\r\nAccept: application/octet-stream\r\n",
+            'header'        => "User-Agent: Open-Geode-Index\r\nAccept: application/octet-stream\r\n",
             'timeout'       => $timeout,
             'ignore_errors' => true,
         ],
@@ -468,7 +468,7 @@ function github_get_user($token) {
     $opts = [
         'http' => [
             'method' => 'GET',
-            'header' => "User-Agent: Open-Geode-Index-PHP\r\nAuthorization: token " . $token . "\r\nAccept: application/json\r\n",
+            'header' => "User-Agent: Open-Geode-Index\r\nAuthorization: token " . $token . "\r\nAccept: application/json\r\n",
             'timeout' => 10
         ]
     ];
@@ -578,22 +578,22 @@ function mod_for_public($mod) {
 }
 
 function fetch_upstream_json($path, $query = []) {
-    // allow override via query param UPSTREAM_URL or header X-Upstream-Url for proxy mod
     $override = null;
-    if (!empty($_GET['UPSTREAM_URL'])) $override = trim((string)$_GET['UPSTREAM_URL']);
     $hdrs = getallheaders_lower();
-    if (empty($override) && !empty($hdrs['x-upstream-url'])) $override = trim((string)$hdrs['x-upstream-url']);
+    if (!empty($hdrs['x-upstream-url'])) $override = $hdrs['x-upstream-url'];
 
     $base = defined('UPSTREAM_URL') ? UPSTREAM_URL : 'https://api.geode-sdk.org';
-    if (!empty($override)) {
-        // basic validation: must start with http
-        if (stripos($override, 'http') === 0) $base = rtrim($override, '/');
-    }
+
+    //echo("base = ".print_r($base, true)."\n");
+
     $url = $base . '/' . ltrim($path, '/');
+    if (!empty($override)) if (stripos($override, 'http') === 0) $url = $override;
+
     if (!empty($query)) $url .= (strpos($url, '?') === false ? '?' : '&') . http_build_query($query);
-    $opts = ['http' => ['method' => 'GET', 'header' => "User-Agent: Open-Geode-Index-PHP\r\nAccept: application/json\r\n", 'timeout' => 8]];
+
+    $opts = ['http' => ['method' => 'GET', 'header' => "User-Agent: Open-Geode-Index\r\nAccept: application/json\r\n", 'timeout' => 22]];
     $ctx = stream_context_create($opts);
-    $res = @file_get_contents($url, false, $ctx);
+    $res = file_get_contents($url, false, $ctx);
     if ($res === false) return null;
     $j = json_decode($res, true);
     return $j ?: null;
@@ -603,7 +603,7 @@ function resolve_final_url($url, $max_redirects = 8, $timeout = 8) {
     if (empty($url)) return ['url' => null, 'code' => null];
     $current = $url;
     $redirects = 0;
-    $opts = ['http' => ['method' => 'GET', 'header' => "User-Agent: Open-Geode-Index-PHP\r\nAccept: */*\r\n", 'timeout' => $timeout, 'ignore_errors' => true]];
+    $opts = ['http' => ['method' => 'GET', 'header' => "User-Agent: Open-Geode-Index\r\nAccept: */*\r\n", 'timeout' => $timeout, 'ignore_errors' => true]];
     $ctx = stream_context_create($opts);
     while ($redirects <= $max_redirects) {
         $headers = @get_headers($current, 1, $ctx);
@@ -642,7 +642,7 @@ function iso8601_utc($ts = null) {
 /* ======================= GitHub raw helpers ======================= */
 function fetch_github_raw_json($repo, $path) {
     $url = "https://raw.githubusercontent.com/{$repo}/HEAD/{$path}";
-    $opts = ['http' => ['method' => 'GET', 'header' => "User-Agent: Open-Geode-Index-PHP\r\nAccept: application/json\r\n", 'timeout' => 8]];
+    $opts = ['http' => ['method' => 'GET', 'header' => "User-Agent: Open-Geode-Index\r\nAccept: application/json\r\n", 'timeout' => 8]];
     $ctx = stream_context_create($opts);
     $res = @file_get_contents($url, false, $ctx);
     if ($res === false) return null;
@@ -652,7 +652,7 @@ function fetch_github_raw_json($repo, $path) {
 }
 function fetch_github_raw_text($repo, $path) {
     $url = "https://raw.githubusercontent.com/{$repo}/HEAD/{$path}";
-    $opts = ['http' => ['method' => 'GET', 'header' => "User-Agent: Open-Geode-Index-PHP\r\nAccept: text/plain\r\n", 'timeout' => 8]];
+    $opts = ['http' => ['method' => 'GET', 'header' => "User-Agent: Open-Geode-Index\r\nAccept: text/plain\r\n", 'timeout' => 8]];
     $ctx = stream_context_create($opts);
     $res = @file_get_contents($url, false, $ctx);
     if ($res === false) return null;
