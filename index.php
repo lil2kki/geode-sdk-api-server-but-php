@@ -1801,6 +1801,7 @@ function ui_header($title = 'Main') {
   }
   </script>
 
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
 
@@ -1862,7 +1863,12 @@ function render_ui() {
     <div class="col-md-4 my-1 py-1 border-end d-flex flex-column border-2">
         <h3>About project</h3>
         <hr class="my-1 mb-3">
-        <p>Welcome to the ALTERNATIVE catalog of mods for Geode, here you can find forbidden or lost mods that are kindly hidden from you. <br><i>Enjoy the underground~</i></p>
+        <p>Welcome to the ALTERNATIVE catalog of mods for Geode, here you can find forbidden or lost mods that are kindly hidden from you. <i>Enjoy the underground~</i></p>
+        <p style="display: flex;justify-content: space-evenly;">
+            <a class="link-primary link-offset-2 link-underline-opacity-25 link-underline-opacity-100-hover" href="https://discord.gg/kXjQ8QEWNU" target="_blank">Discord</a>
+            <a class="link-info link-offset-2 link-underline-opacity-25 link-underline-opacity-100-hover" href="https://t.me/lil2kki_ch" target="_blank">Telegram</a>
+            <a class="link-body-emphasis link-offset-2 link-underline-opacity-25 link-underline-opacity-100-hover" href="https://github.com/lil2kki/Open-Geode-Index" target="_blank">GitHub</a>
+        </p>
         <dl class="row px-2 mb-1">
             <dt class="col-10 border-start my-1">Total mod count</dt><dd class="col-2 text-end border-end btn btn-link rounded-0 btn-sm fs-5 py-0"><?=htmlspecialchars($stats['total_mod_count'] ?? 0)?></dd>
             <dt class="col-10 border-start my-1">Total mod downloads</dt><dd class="col-2 text-end border-end btn btn-link rounded-0 btn-sm fs-5 py-0"><?=htmlspecialchars($stats['total_mod_downloads'] ?? 0)?></dd>
@@ -1935,6 +1941,7 @@ function render_ui() {
             <?php if (!empty($m['logo_url'])): ?><img class="card-img-top" src="<?=htmlspecialchars($m['logo_url'])?>" alt="logo" style="object-fit:scale-down;height:140px;" onerror="this.style.display='none'"><?php endif; ?>
             <div class="card-body d-flex flex-column">
               <h5 class="card-title mb-1"><?=htmlspecialchars($m['id'])?></h5>
+              <p style="position:absolute; bottom:-15px; right: 5px;"><i class="bi bi-download"></i> <?=htmlspecialchars($m['download_count'])?></p>
               <p class="card-text text-muted"><?=strip_tags(md(strip_tags(mb_strimwidth($m['about'] ?? '', 0, 140, '...')), true), '<p><i><b><strong><code><pre>')?></p>
             </div>
           </a>
@@ -2028,22 +2035,20 @@ function render_mod_page($id) {
 <div class="row">
   <div class="col-md-8">
 	<div class="" style="display: flex;">
-		<?php if (!empty($mod['logo_url'])): ?><img src="<?=htmlspecialchars($mod['logo_url'])?>" alt="logo" style="max-height:80px;" onerror="this.style.display='none'"><?php endif; ?>
+		<?php if (!empty($mod['logo_url'])): ?><img src="<?=htmlspecialchars($mod['logo_url'])?>" alt="logo" style="max-height:95px;" onerror="this.style.display='none'"><?php endif; ?>
 		<div class="ms-2">
-			<h2><?=htmlspecialchars($mod['id'])?></h2>
-			<?php if (!empty($mod['repository'])): ?><p>Repository: <a href="<?=htmlspecialchars($mod['repository'])?>" target="_blank"><?=htmlspecialchars($mod['repository'])?></a></p><?php endif; ?>
+			<h2 class="m-0"><?=htmlspecialchars($mod['versions'][0]['name'])?></h2>
+			<h5 class="m-0 mb-1 text-body-tertiary"><?=htmlspecialchars($mod['id'])?></h5>
+			<?php if (!empty($mod['versions'][0]['description'])): ?><span class="text-muted"><?=htmlspecialchars($mod['versions'][0]['description'])?></span><?php endif; ?>
 		</div>
 	</div>
 
-    <ul class="nav nav-underline mx-3">
+    <ul class="nav nav-underline mx-1" style="justify-content: center;">
         <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#about">About</a></li>
-        <li class="nav-item"><a class="nav-link 
-        <?php if (empty($mod['changelog'])): ?> disabled <?php endif; ?>
-        " data-toggle="tab" href="#changelog">Changelog</a></li>
-
+        <li class="nav-item"><a class="nav-link <?php if(empty($mod['changelog'])): ?>disabled<?php endif; ?>" data-toggle="tab" href="#changelog">Changelog</a></li>
     </ul>
 
-    <div class="tab-content mt-3">
+    <div class="tab-content mt-1">
     <div class="tab-pane active" id="about">
         <p class="mb-0"><?=md(strip_tags($mod['about'] ?? ''))?></p>
     </div>
@@ -2065,7 +2070,10 @@ function render_mod_page($id) {
       <?php foreach ($mod['versions'] as $v): ?>
         <li class="list-group-item d-flex justify-content-between align-items-center">
           <div><strong><?=htmlspecialchars($v['version'])?></strong></div>
-          <div><a class="btn btn-sm btn-success" href="/v1/mods/<?=urlencode($mod['id'])?>/versions/<?=urlencode($v['version'])?>/download">Download</a></div>
+          <div style="display: flex; align-items: center;">
+              <div><i class="bi bi-download"></i> <?=htmlspecialchars($v['download_count'])?></div>
+              <a class="ms-2 btn btn-sm btn-success" href="/v1/mods/<?=urlencode($mod['id'])?>/versions/<?=urlencode($v['version'])?>/download">Download</a>
+          </div>
         </li>
       <?php endforeach; ?>
     </ul>
@@ -2173,6 +2181,9 @@ function render_mod_page($id) {
     <?php endif; ?>
 
   </div>
+			
+  <?php if (!empty($mod['repository'])): ?><span class="w-100 text-center">Repository: <a href="<?=htmlspecialchars($mod['repository'])?>" target="_blank"><?=htmlspecialchars($mod['repository'])?></a></span><?php endif; ?>
+
 </div>
 <?php
     ui_footer();
