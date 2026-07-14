@@ -466,20 +466,27 @@ function normalize_gd($gd) {
     return empty($out) ? null : expand_gd_platforms($out);
 }
 
+// The tag shown next to a developer's name on a mod's page (e.g. "Owner", "Developer",
+// "Porter"). Falls back to a sensible default derived from is_owner when not set explicitly.
+function default_developer_role($is_owner) {
+    return $is_owner ? 'Owner' : 'Developer';
+}
+
 function map_modjson_developers($devs, $submitter = null) {
     $out = [];
     if (empty($devs)) {
-        if ($submitter) $out[] = ['id' => null, 'username' => $submitter, 'display_name' => $submitter, 'is_owner' => true];
+        if ($submitter) $out[] = ['id' => null, 'username' => $submitter, 'display_name' => $submitter, 'is_owner' => true, 'role' => 'Owner'];
         return $out;
     }
     foreach ($devs as $d) {
         if (is_string($d)) {
-            $out[] = ['id' => null, 'username' => $d, 'display_name' => $d, 'is_owner' => false];
+            $out[] = ['id' => null, 'username' => $d, 'display_name' => $d, 'is_owner' => false, 'role' => 'Developer'];
         } elseif (is_array($d)) {
             $username = isset($d['username']) ? $d['username'] : (isset($d['name']) ? $d['name'] : null);
             $display = isset($d['display_name']) ? $d['display_name'] : ($username ?: '');
             $is_owner = !empty($d['is_owner']);
-            $out[] = ['id' => isset($d['id']) ? $d['id'] : null, 'username' => $username, 'display_name' => $display, 'is_owner' => $is_owner];
+            $role = !empty($d['role']) ? (string)$d['role'] : default_developer_role($is_owner);
+            $out[] = ['id' => isset($d['id']) ? $d['id'] : null, 'username' => $username, 'display_name' => $display, 'is_owner' => $is_owner, 'role' => $role];
         }
     }
     if ($submitter) {
@@ -487,12 +494,13 @@ function map_modjson_developers($devs, $submitter = null) {
         foreach ($out as &$o) {
             if ($o['username'] === $submitter) {
                 $o['is_owner'] = true;
+                if (empty($o['role']) || $o['role'] === 'Developer') $o['role'] = 'Owner';
                 $found = true;
                 break;
             }
         }
         unset($o);
-        if (!$found) $out[] = ['id' => null, 'username' => $submitter, 'display_name' => $submitter, 'is_owner' => true];
+        if (!$found) $out[] = ['id' => null, 'username' => $submitter, 'display_name' => $submitter, 'is_owner' => true, 'role' => 'Owner'];
     }
     return $out;
 }
@@ -1303,6 +1311,12 @@ function api_mods_update_owner($id) {
 
         if (isset($body['prefer_github_info'])) $mods[$i]['prefer_github_info'] = (bool)$body['prefer_github_info'];
 
+        // Let owners edit their page's own content directly, without needing to
+        // touch download_link/versions at all (and thus without touching download counts).
+        if (isset($body['about'])) $mods[$i]['about'] = (string)$body['about'];
+        if (isset($body['changelog'])) $mods[$i]['changelog'] = (string)$body['changelog'];
+        if (isset($body['logo_url'])) $mods[$i]['logo_url'] = trim((string)$body['logo_url']) ?: null;
+
         if (!empty($body['download_link'])) {
             $meta = extract_metadata_from_geode($body['download_link']);
             if ($meta === null || empty($meta['modjson'])) {
@@ -1343,6 +1357,10 @@ function api_mods_update_owner($id) {
             $replaced = false;
             foreach ($mods[$i]['versions'] as $vi => $vv) {
                 if ($vv['version'] === $newver['version']) {
+                    // Re-uploading the same version (e.g. just to refresh metadata) must not
+                    // wipe out that version's existing download count or creation date.
+                    $newver['download_count'] = $vv['download_count'] ?? 0;
+                    $newver['created_at'] = $vv['created_at'] ?? $newver['created_at'];
                     $mods[$i]['versions'][$vi] = $newver;
                     $replaced = true;
                     break;
@@ -1360,7 +1378,10 @@ function api_mods_update_owner($id) {
 
         if (isset($body['links']) && is_array($body['links'])) $mods[$i]['links'] = $body['links'];
 
-        if (!empty($mods[$i]['versions'][0]['download_link'])) {
+        // Only re-derive about/changelog from the uploaded .geode when explicitly asked to -
+        // otherwise this would silently clobber any custom 'about' text set just above on
+        // every single save (tags, display name, etc).
+        if (!empty($body['refresh_metadata']) && !empty($mods[$i]['versions'][0]['download_link'])) {
             $meta2 = extract_metadata_from_geode($mods[$i]['versions'][0]['download_link']);
             if ($meta2 !== null) {
                 if (!empty($meta2['about'])) $mods[$i]['about'] = $meta2['about'];
@@ -1600,7 +1621,28 @@ function api_mod_add_developer($modid) {
         }
         if (!$allowed) return json_response(['error' => 'forbidden', 'payload' => null], 403);
 
-        $mods[$i]['developers'][] = ['id' => null, 'username' => $body['username'], 'display_name' => $body['username'], 'is_owner' => !empty($body['is_owner'])];
+        $username = trim((string)$body['username']);
+        $role = !empty($body['role']) ? trim((string)$body['role']) : null;
+        $is_owner = isset($body['is_owner']) ? !empty($body['is_owner']) : (strtolower((string)$role) === 'owner');
+        if ($role === null) $role = default_developer_role($is_owner);
+
+        // Adding a username that's already listed updates their role/owner tag in place,
+        // so this endpoint also doubles as "change who the main dev is" without needing
+        // to remove and re-add the developer.
+        $found = false;
+        foreach ($mods[$i]['developers'] as $j => $d) {
+            if (!empty($d['username']) && $d['username'] === $username) {
+                $mods[$i]['developers'][$j]['is_owner'] = $is_owner;
+                $mods[$i]['developers'][$j]['role'] = $role;
+                $found = true;
+                break;
+            }
+        }
+        if (!$found) {
+            $mods[$i]['developers'][] = ['id' => null, 'username' => $username, 'display_name' => $username, 'is_owner' => $is_owner, 'role' => $role];
+        }
+
+        $mods[$i]['updated_at'] = iso8601_utc();
         db_write('mods.json', $mods);
         return json_response(['error' => '', 'payload' => null], 204);
     }
@@ -1895,10 +1937,11 @@ function handle_home() {
 
 // Wires up any <form> on the page to submit via fetch() against the JSON API,
 // showing an alert on success/failure instead of a full page navigation.
-function asAPIReqForm() {
+function asAPIReqForm($selector = 'form') {
+    $selector_json = json_encode($selector);
     return "
 <script>
-document.querySelector('form').addEventListener('submit', function(e) {
+document.querySelector($selector_json).addEventListener('submit', function(e) {
     e.preventDefault();
 
     let a = this.querySelector('button[type=\"submit\"]');
@@ -2231,6 +2274,17 @@ function render_mod_page($id) {
         if ($text === null) $text = fetch_github_raw_text($mod['repo'], 'about.md');
         if ($text !== null) $mod['about'] = $text;
     }
+
+    $owner_allowed = is_admin();
+    if (!$owner_allowed && $user) {
+        foreach ($mod['developers'] as $dev) {
+            if (!empty($dev['username']) && $dev['username'] === $user && !empty($dev['is_owner'])) { $owner_allowed = true; break; }
+        }
+    }
+    $owner_display = '';
+    foreach ($mod['developers'] as $d) {
+        if (!empty($d['is_owner'])) { $owner_display = $d['display_name'] ?? ($d['username'] ?? ''); break; }
+    }
     ?>
 <div class="row">
   <div class="col-md-8">
@@ -2293,17 +2347,30 @@ function render_mod_page($id) {
                         document.getElementById('a-<?=htmlspecialchars($d['display_name'])?>').href='https://github.com/<?=htmlspecialchars($d['display_name'])?>';
                     "
                 >
-                <div class="border-start border-2">
-                    <div class="card-body p-1 px-2 pt-2">
-                        <h5 class="card-title">
-                            <a id="a-<?=htmlspecialchars($d['display_name'])?>" target="_blank" href="https://github.com/<?=htmlspecialchars($d['username'])?>" class="link-body-emphasis link-offset-2 link-underline-opacity-25 link-underline-opacity-75-hover">
-                                <?=htmlspecialchars($d['display_name'])?>
-                            </a>
-                        </h5>
-                        <p class="card-text text-body-secondary">
-                            <?=htmlspecialchars($d['username'])?>
-                            <?=!empty($d['is_owner']) ? '<a href="https://github.com/'.htmlspecialchars($d['username']).'" class="link-info link-underline-opacity-50">[puplisher]</a>' : ''?>
-                        </p>
+                <div class="border-start border-2 flex-grow-1">
+                    <div class="card-body p-1 px-2 pt-2 d-flex justify-content-between align-items-start">
+                        <div>
+                            <h5 class="card-title">
+                                <a id="a-<?=htmlspecialchars($d['display_name'])?>" target="_blank" href="https://github.com/<?=htmlspecialchars($d['username'])?>" class="link-body-emphasis link-offset-2 link-underline-opacity-25 link-underline-opacity-75-hover">
+                                    <?=htmlspecialchars($d['display_name'])?>
+                                </a>
+                            </h5>
+                            <p class="card-text text-body-secondary">
+                                <?=htmlspecialchars($d['username'])?>
+                                <?php $role = !empty($d['role']) ? $d['role'] : (!empty($d['is_owner']) ? 'Owner' : 'Developer'); ?>
+                                <span class="badge <?=!empty($d['is_owner']) ? 'text-bg-info' : 'text-bg-secondary'?>"><?=htmlspecialchars($role)?></span>
+                            </p>
+                        </div>
+                        <?php if ($owner_allowed): ?>
+                        <form onsubmit="
+                            event.preventDefault();
+                            if (!confirm('Remove <?=htmlspecialchars(addslashes($d['username']))?> from this mod?')) return;
+                            fetch('/v1/mods/<?=urlencode($mod['id'])?>/developers/<?=urlencode($d['username'])?>', {method:'DELETE'})
+                                .then(r => { if (r.ok) location.reload(); else r.json().then(d => alert(d.error || 'Failed to remove developer')).catch(() => alert('Failed to remove developer')); });
+                        ">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                        </form>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -2311,23 +2378,38 @@ function render_mod_page($id) {
       <?php endforeach; ?>
     </div>
 
+    <?php if ($owner_allowed): ?>
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6>Add / update developer</h6>
+          <form onsubmit="
+              event.preventDefault();
+              fetch('/v1/mods/<?=urlencode($mod['id'])?>/developers', {method: 'POST', body: new FormData(this)})
+                  .then(async r => {
+                      if (r.ok) { location.reload(); return; }
+                      let d; try { d = await r.json(); } catch (e) {}
+                      alert((d && d.error) || 'Failed to add developer');
+                  });
+          ">
+            <input name="username" class="form-control mb-2" placeholder="GitHub username" required>
+            <select name="role" class="form-control mb-2">
+              <option value="Developer">Developer</option>
+              <option value="Owner">Owner (main dev)</option>
+              <option value="Porter">Porter</option>
+              <option value="Contributor">Contributor</option>
+            </select>
+            <button class="w-100 btn btn-sm btn-primary">Add / update developer</button>
+          </form>
+        </div>
+      </div>
+    <?php endif; ?>
+
 	<hr>
 
-    <?php
-    $owner_allowed = is_admin();
-    if (!$owner_allowed && $user) {
-        foreach ($mod['developers'] as $dev) {
-            if (!empty($dev['username']) && $dev['username'] === $user && !empty($dev['is_owner'])) { $owner_allowed = true; break; }
-        }
-    }
-    $owner_display = '';
-    foreach ($mod['developers'] as $d) {
-        if (!empty($d['is_owner'])) { $owner_display = $d['display_name'] ?? ($d['username'] ?? ''); break; }
-    }
-    if ($owner_allowed): ?>
+    <?php if ($owner_allowed): ?>
         <div class="card mb-3">
             <div class="card-body">
-            <form method="post" action="/v1/mods/<?=urlencode($mod['id'])?>">
+            <form id="mod-update-form" method="post" action="/v1/mods/<?=urlencode($mod['id'])?>">
                 <h6>Update</h6>
 
                 <div class="form-group my-2">
@@ -2344,12 +2426,28 @@ function render_mod_page($id) {
                 </div>
 
                 <div class="form-group my-2">
-                    <label for="download_link">Download link</label>
+                    <label for="about">About / page text</label>
+                    <textarea id="about" name="about" class="form-control" rows="5"><?=htmlspecialchars($mod['about'] ?? '')?></textarea>
+                    <small class="form-text text-muted">Editing this does not touch versions or download counts.</small>
+                </div>
+
+                <div class="form-group my-2">
+                    <label for="logo_url">Logo URL</label>
+                    <input id="logo_url" name="logo_url" class="form-control" value="<?=htmlspecialchars($mod['logo_url'] ?? '')?>">
+                </div>
+
+                <div class="form-group my-2 form-check">
+                    <input type="checkbox" id="refresh_metadata" name="refresh_metadata" value="1" class="form-check-input">
+                    <label for="refresh_metadata" class="form-check-label">Re-sync about/changelog from the currently uploaded .geode file</label>
+                </div>
+
+                <div class="form-group my-2">
+                    <label for="download_link">Download link (only set this to publish a new version)</label>
                     <input id="download_link" name="download_link" class="form-control">
                 </div>
 
                 <button class="w-100 btn btn-primary btn-block">Submit</button>
-            </form><?=asAPIReqForm()?>
+            </form><?=asAPIReqForm('#mod-update-form')?>
             </div>
         </div>
     <?php endif; ?>

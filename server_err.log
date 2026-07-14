@@ -1,0 +1,26 @@
+[Tue Jul 14 13:52:14 2026] PHP 8.3.32 Development Server (http://localhost:8000) started
+[Tue Jul 14 13:52:16 2026] [::1]:51706 Accepted
+[Tue Jul 14 13:52:16 2026] [::1]:51706 Closing
+[Tue Jul 14 13:52:21 2026] [::1]:51714 Accepted
+[Tue Jul 14 13:52:21 2026] [::1]:51714 Closing
+[Tue Jul 14 13:52:21 2026] [::1]:51715 Accepted
+[Tue Jul 14 13:52:22 2026] [::1]:51715 Closing
+[Tue Jul 14 13:55:56 2026] [::1]:49162 Accepted
+[Tue Jul 14 13:55:56 2026] [::1]:49162 Closing
+[Tue Jul 14 13:55:56 2026] [::1]:54125 Accepted
+[Tue Jul 14 13:55:56 2026] [::1]:54125 Closing
+[Tue Jul 14 14:02:45 2026] [::1]:57849 Accepted
+[Tue Jul 14 14:02:45 2026] [::1]:57849 Closing
+[Tue Jul 14 14:02:45 2026] [::1]:57098 Accepted
+[Tue Jul 14 14:02:45 2026] [::1]:57098 Closing
+[Tue Jul 14 14:02:49 2026] [::1]:51575 Accepted
+[Tue Jul 14 14:02:49 2026] [::1]:51575 Closing
+[Tue Jul 14 14:03:01 2026] [::1]:52398 Accepted
+[Tue Jul 14 14:03:01 2026] [::1]:51019 Accepted
+[Tue Jul 14 14:03:01 2026] [::1]:52398 Closing
+[Tue Jul 14 14:03:01 2026] [::1]:51019 Closing
+[Tue Jul 14 14:03:17 2026] [::1]:60211 Accepted
+[Tue Jul 14 14:03:18 2026] [::1]:54064 Accepted
+[Tue Jul 14 14:03:18 2026] [::1]:60211 Closing
+[Tue Jul 14 14:08:26 2026] [::1]:54064 Closed without sending a request; it was probably just an unused speculative preconnection
+[Tue Jul 14 14:08:26 2026] [::1]:54064 Closing
