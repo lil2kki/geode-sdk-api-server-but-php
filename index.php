@@ -3,8 +3,8 @@ include '_config.php';
 
 define('DATA_DIR', __DIR__ . '/data');
 define('SESSION_COOKIE', 'ogi_session');
-define('ACCESS_TOKEN_TTL', 60 * 60 * 24 * 7);    // 7 days
-define('REFRESH_TOKEN_TTL', 60 * 60 * 24 * 30);  // 30 days
+define('ACCESS_TOKEN_TTL', 60 * 60 * 24 * 7);
+define('REFRESH_TOKEN_TTL', 60 * 60 * 24 * 30);
 
 @ini_set('display_errors', '0');
 @ini_set('display_startup_errors', '0');
@@ -12,14 +12,20 @@ error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 
 ob_start();
 
-// ensure data dir
-if (!file_exists(DATA_DIR)) @mkdir(DATA_DIR, 0755, true);
+// Ensure the data directory exists before anything tries to read/write JSON files.
+if (!file_exists(DATA_DIR)) {
+    @mkdir(DATA_DIR, 0755, true);
+}
 
 /* ======================= BOOT ======================= */
 session_start();
+
 $method = $_SERVER['REQUEST_METHOD'];
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-if ($uri !== '/' && substr($uri, -1) === '/') $uri = rtrim($uri, '/');
+if ($uri !== '/' && substr($uri, -1) === '/') {
+    $uri = rtrim($uri, '/');
+}
+
 route($method, $uri);
 
 /* ======================= ROUTER ======================= */
@@ -37,7 +43,11 @@ function route($method, $uri) {
     if ($uri === '/ui/admin' && $method === 'POST') return handle_admin_form();
 
     // API endpoints (full /v1 surface)
-    if ($uri === '/health' && $method === 'GET') { header('Content-Type: text/plain'); echo 'ok'; exit; }
+    if ($uri === '/health' && $method === 'GET') {
+        header('Content-Type: text/plain');
+        echo 'ok';
+        exit;
+    }
 
     // tags
     if ($uri === '/v1/tags' && $method === 'GET') return api_tags_index();
@@ -137,7 +147,9 @@ function route($method, $uri) {
 
 function md($a = 'a', $line = false) {
     include 'Parsedown.php';
-    return $line ? preg_replace('/^#+\s*/m', '', Parsedown::instance()->line($a)) : Parsedown::instance()->text($a);
+    return $line
+        ? preg_replace('/^#+\s*/m', '', Parsedown::instance()->line($a))
+        : Parsedown::instance()->text($a);
 }
 
 function compute_remote_sha256($url, $max_bytes = 120 * 1024 * 1024, $timeout = 60, $max_redirects = 8) {
@@ -166,6 +178,7 @@ function fetch_remote_file_to_temp($url, $max_bytes = 120 * 1024 * 1024, $timeou
         error_log("[OGI] fetch_remote_file_to_temp invalid url: $url");
         return null;
     }
+
     $opts = [
         'http' => [
             'method'        => 'GET',
@@ -173,21 +186,26 @@ function fetch_remote_file_to_temp($url, $max_bytes = 120 * 1024 * 1024, $timeou
             'timeout'       => $timeout,
             'ignore_errors' => true,
         ],
-        'ssl' => ['verify_peer'=>true,'verify_peer_name'=>true],
+        'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
     ];
     $ctx = stream_context_create($opts);
     $current = $url;
     $redirects = 0;
 
+    // Resolve redirects manually first so we know the final URL is actually reachable
+    // before we start streaming a (potentially large) file to disk.
     while ($redirects <= $max_redirects) {
         $headers = @get_headers($current, 1, $ctx);
         if ($headers === false) {
             error_log("[OGI] fetch_remote_file_to_temp get_headers failed for $current");
             return null;
         }
+
         $statusLine = isset($headers[0]) ? (is_array($headers[0]) ? end($headers[0]) : $headers[0]) : null;
         $code = null;
-        if ($statusLine && preg_match('/HTTP\/[\d\.]+\s+([0-9]{3})/i', $statusLine, $m)) $code = intval($m[1]);
+        if ($statusLine && preg_match('/HTTP\/[\d\.]+\s+([0-9]{3})/i', $statusLine, $m)) {
+            $code = intval($m[1]);
+        }
 
         if ($code !== null && $code >= 300 && $code < 400 && !empty($headers['Location'])) {
             $loc = $headers['Location'];
@@ -197,8 +215,11 @@ function fetch_remote_file_to_temp($url, $max_bytes = 120 * 1024 * 1024, $timeou
                 $scheme = $base['scheme'] ?? 'https';
                 $host = $base['host'] ?? '';
                 $port = isset($base['port']) ? ':' . $base['port'] : '';
-                if (strpos($loc, '/') === 0) $loc = $scheme . '://' . $host . $port . $loc;
-                else $loc = $scheme . '://' . $host . $port . (isset($base['path']) ? dirname($base['path']) . '/' : '') . $loc;
+                if (strpos($loc, '/') === 0) {
+                    $loc = $scheme . '://' . $host . $port . $loc;
+                } else {
+                    $loc = $scheme . '://' . $host . $port . (isset($base['path']) ? dirname($base['path']) . '/' : '') . $loc;
+                }
             }
             $current = $loc;
             $redirects++;
@@ -226,9 +247,14 @@ function fetch_remote_file_to_temp($url, $max_bytes = 120 * 1024 * 1024, $timeou
 
     $tmp = tempnam(sys_get_temp_dir(), 'ogi_');
     $out = @fopen($tmp, 'wb');
-    if ($out === false) { fclose($fp); @unlink($tmp); return null; }
+    if ($out === false) {
+        fclose($fp);
+        @unlink($tmp);
+        return null;
+    }
 
-    $read = 0; $chunk = 8192;
+    $read = 0;
+    $chunk = 8192;
     while (!feof($fp) && $read < $max_bytes) {
         $data = @fread($fp, $chunk);
         if ($data === false) break;
@@ -237,15 +263,22 @@ function fetch_remote_file_to_temp($url, $max_bytes = 120 * 1024 * 1024, $timeou
         $read += $len;
         fwrite($out, $data);
     }
-    fclose($fp); fclose($out);
+    fclose($fp);
+    fclose($out);
 
-    if ($read >= $max_bytes) { error_log("[OGI] fetch_remote_file_to_temp reached max_bytes for $current"); @unlink($tmp); return null; }
+    if ($read >= $max_bytes) {
+        error_log("[OGI] fetch_remote_file_to_temp reached max_bytes for $current");
+        @unlink($tmp);
+        return null;
+    }
     return $tmp;
 }
 
-//['modjson'=>array|null,'about'=>string|null,'changelog'=>string|null]
+// Downloads a .geode (zip) archive and pulls out mod.json plus about/readme/changelog text.
+// Returns ['modjson' => array|null, 'about' => string|null, 'changelog' => string|null], or null on failure.
 function extract_metadata_from_geode($download_url) {
     if (empty($download_url)) return null;
+
     $tmp = fetch_remote_file_to_temp($download_url);
     if ($tmp === null) return null;
 
@@ -256,19 +289,28 @@ function extract_metadata_from_geode($download_url) {
     }
 
     $zip = new ZipArchive();
-    if ($zip->open($tmp) !== true) { error_log("[OGI] extract_metadata_from_geode zip open failed for $tmp"); @unlink($tmp); return null; }
+    if ($zip->open($tmp) !== true) {
+        error_log("[OGI] extract_metadata_from_geode zip open failed for $tmp");
+        @unlink($tmp);
+        return null;
+    }
 
-    $result = ['modjson'=>null, 'about'=>null, 'changelog'=>null];
+    $result = ['modjson' => null, 'about' => null, 'changelog' => null];
     $nameCount = $zip->numFiles;
-    $found = ['mod.json'=>null, 'about'=>null, 'readme'=>null, 'changelog'=>null];
+    $found = ['mod.json' => null, 'about' => null, 'readme' => null, 'changelog' => null];
 
     for ($i = 0; $i < $nameCount; $i++) {
         $name = $zip->getNameIndex($i);
         $base = strtolower(basename($name));
-        if ($base === 'mod.json' && $found['mod.json'] === null) $found['mod.json'] = $i;
-        elseif (in_array($base, ['about.md','about','about.txt']) && $found['about'] === null) $found['about'] = $i;
-        elseif (in_array($base, ['readme.md','readme','readme.txt']) && $found['readme'] === null) $found['readme'] = $i;
-        elseif (in_array($base, ['changelog.md','changelog','change.log','changes.md','changelog']) && $found['changelog'] === null) $found['changelog'] = $i;
+        if ($base === 'mod.json' && $found['mod.json'] === null) {
+            $found['mod.json'] = $i;
+        } elseif (in_array($base, ['about.md', 'about', 'about.txt']) && $found['about'] === null) {
+            $found['about'] = $i;
+        } elseif (in_array($base, ['readme.md', 'readme', 'readme.txt']) && $found['readme'] === null) {
+            $found['readme'] = $i;
+        } elseif (in_array($base, ['changelog.md', 'changelog', 'change.log', 'changes.md', 'changelog']) && $found['changelog'] === null) {
+            $found['changelog'] = $i;
+        }
     }
 
     if ($found['mod.json'] !== null) {
@@ -343,6 +385,7 @@ function json_input() {
 
 function current_user() {
     if (!empty($_SESSION['github_user'])) return $_SESSION['github_user'];
+
     $h = getallheaders_lower();
     if (!empty($h['authorization']) && preg_match('/Bearer\s+(\S+)/i', $h['authorization'], $m)) {
         $token = $m[1];
@@ -363,12 +406,18 @@ function is_admin() {
 
 function require_auth() {
     $u = current_user();
-    if (!$u) { json_response(['error' => 'Unauthorized', 'payload' => null], 401); return false; }
+    if (!$u) {
+        json_response(['error' => 'Unauthorized', 'payload' => null], 401);
+        return false;
+    }
     return true;
 }
 
 function require_admin() {
-    if (!is_admin()) { json_response(['error' => 'Forbidden - Admin only', 'payload' => null], 403); return false; }
+    if (!is_admin()) {
+        json_response(['error' => 'Forbidden - Admin only', 'payload' => null], 403);
+        return false;
+    }
     return true;
 }
 
@@ -390,18 +439,21 @@ function getallheaders_lower() {
     return $h;
 }
 
-// normalization helpers
+/* ----------------------- normalization helpers ----------------------- */
+
 function normalize_version($v) {
     if ($v === null) return null;
     $s = trim((string)$v);
     if ($s === '') return null;
     return preg_replace('/^v/i', '', $s);
 }
+
 function normalize_geode($g) {
     if ($g === null) return null;
     $s = trim((string)$g);
     return $s === '' ? null : $s;
 }
+
 function normalize_gd($gd) {
     if (empty($gd) || !is_array($gd)) return null;
     $out = [];
@@ -433,33 +485,41 @@ function map_modjson_developers($devs, $submitter = null) {
     if ($submitter) {
         $found = false;
         foreach ($out as &$o) {
-            if ($o['username'] === $submitter) { $o['is_owner'] = true; $found = true; break; }
+            if ($o['username'] === $submitter) {
+                $o['is_owner'] = true;
+                $found = true;
+                break;
+            }
         }
+        unset($o);
         if (!$found) $out[] = ['id' => null, 'username' => $submitter, 'display_name' => $submitter, 'is_owner' => true];
     }
     return $out;
 }
 
 /* ======================= GITHUB helpers & token issuance ======================= */
+
 function github_exchange_code($code) {
     if (!defined('CLIENT_ID') || CLIENT_ID === '') return null;
+
     $post = http_build_query([
-        'client_id' => CLIENT_ID,
+        'client_id'     => CLIENT_ID,
         'client_secret' => CLIENT_SECRET,
-        'code' => $code,
-        'redirect_uri' => CALLBACK_URL ?: current_url_base() . '/callback',
+        'code'          => $code,
+        'redirect_uri'  => CALLBACK_URL ?: current_url_base() . '/callback',
     ]);
     $opts = [
         'http' => [
-            'method' => 'POST',
-            'header' => "Accept: application/json\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: " . strlen($post) . "\r\n",
+            'method'  => 'POST',
+            'header'  => "Accept: application/json\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: " . strlen($post) . "\r\n",
             'content' => $post,
             'timeout' => 10,
-        ]
+        ],
     ];
     $ctx = stream_context_create($opts);
     $res = @file_get_contents('https://github.com/login/oauth/access_token', false, $ctx);
     if ($res === false) return null;
+
     $json = json_decode($res, true);
     if (!$json || empty($json['access_token'])) return null;
     return $json['access_token'];
@@ -468,10 +528,10 @@ function github_exchange_code($code) {
 function github_get_user($token) {
     $opts = [
         'http' => [
-            'method' => 'GET',
-            'header' => "User-Agent: Open-Geode-Index\r\nAuthorization: token " . $token . "\r\nAccept: application/json\r\n",
-            'timeout' => 10
-        ]
+            'method'  => 'GET',
+            'header'  => "User-Agent: Open-Geode-Index\r\nAuthorization: token " . $token . "\r\nAccept: application/json\r\n",
+            'timeout' => 10,
+        ],
     ];
     $ctx = stream_context_create($opts);
     $res = @file_get_contents('https://api.github.com/user', false, $ctx);
@@ -485,11 +545,11 @@ function issue_local_tokens_for_user($username) {
     $refresh = bin2hex(random_bytes(24));
     $now = time();
     $meta = [
-        'username' => $username,
-        'issued_at' => iso8601_utc($now),
-        'expires_at' => iso8601_utc($now + ACCESS_TOKEN_TTL),
-        'refresh_token' => $refresh,
-        'refresh_expires_at' => iso8601_utc($now + REFRESH_TOKEN_TTL)
+        'username'            => $username,
+        'issued_at'           => iso8601_utc($now),
+        'expires_at'          => iso8601_utc($now + ACCESS_TOKEN_TTL),
+        'refresh_token'       => $refresh,
+        'refresh_expires_at'  => iso8601_utc($now + REFRESH_TOKEN_TTL),
     ];
     $tokens[$access] = $meta;
     db_write('tokens.json', $tokens);
@@ -498,7 +558,9 @@ function issue_local_tokens_for_user($username) {
 
 function ensure_developer_record($username, $display = null) {
     $devs = db_read('developers.json') ?: [];
-    foreach ($devs as $d) if (isset($d['username']) && $d['username'] === $username) return;
+    foreach ($devs as $d) {
+        if (isset($d['username']) && $d['username'] === $username) return;
+    }
     $new = ['id' => time(), 'username' => $username, 'display_name' => $display ?: $username, 'verified' => false, 'admin' => false, 'github_id' => null];
     $devs[] = $new;
     db_write('developers.json', $devs);
@@ -510,6 +572,8 @@ function current_url_base() {
     return $scheme . '://' . $host;
 }
 
+// Expands the short "gd" platform keys from mod.json into the full set the API exposes,
+// e.g. android -> android32/android64, mac -> mac-intel/mac-arm.
 function expand_gd_platforms($gd) {
     if (empty($gd)) return $gd;
     if (!is_array($gd)) return $gd; // leave strings unchanged
@@ -524,7 +588,6 @@ function expand_gd_platforms($gd) {
 
     // Mac -> mac-intel + mac-arm
     if (isset($gd['mac']) && $gd['mac'] !== null && $gd['mac'] !== '') {
-        // create both common keys; note: user asked for "mac-inel" but "mac-intel" is typical — include both safe keys
         if (!isset($out['mac-intel'])) $out['mac-intel'] = $gd['mac'];
         if (!isset($out['mac-arm']))   $out['mac-arm']   = $gd['mac'];
     }
@@ -536,32 +599,35 @@ function public_download_link($modid, $version) {
     return rtrim(current_url_base(), '/') . '/v1/mods/' . rawurlencode($modid) . '/versions/' . rawurlencode($version) . '/download';
 }
 
+// Prepares a version entry for API responses: expands gd platforms, and makes sure
+// download_link always points at our own proxy download endpoint (falling back to
+// the upstream index's link when we don't have one locally).
 function version_for_public($modid, $v) {
     $out = $v;
-    // expand gd platform keys for public consumption
     if (isset($out['gd'])) $out['gd'] = expand_gd_platforms($out['gd']);
-    // prefer internal proxy link only when original download_link exists
+
     if (!empty($v['download_link'])) {
         $out['download_link'] = public_download_link($modid, $v['version']);
-    } else {
-        // attempt to fetch upstream mod/version and use its download_link
-        $up = fetch_upstream_json("/v1/mods/{$modid}");
-        if ($up && !empty($up['payload'])) {
-            $upmod = $up['payload'];
-            if (!empty($upmod['versions']) && is_array($upmod['versions'])) {
-                foreach ($upmod['versions'] as $uv) {
-                    if ((isset($uv['version']) && $uv['version'] === ($v['version'] ?? null)) || empty($v['version'])) {
-                        if (!empty($uv['download_link'])) {
-                            $out['download_link'] = $uv['download_link'];
-                            break;
-                        }
+        return $out;
+    }
+
+    // No local download link — try to borrow one from the upstream mod/version.
+    $up = fetch_upstream_json("/v1/mods/{$modid}");
+    if ($up && !empty($up['payload'])) {
+        $upmod = $up['payload'];
+        if (!empty($upmod['versions']) && is_array($upmod['versions'])) {
+            foreach ($upmod['versions'] as $uv) {
+                if ((isset($uv['version']) && $uv['version'] === ($v['version'] ?? null)) || empty($v['version'])) {
+                    if (!empty($uv['download_link'])) {
+                        $out['download_link'] = $uv['download_link'];
+                        break;
                     }
                 }
             }
         }
-        // if still empty, leave as empty string
-        if (empty($out['download_link'])) $out['download_link'] = '';
     }
+
+    if (empty($out['download_link'])) $out['download_link'] = '';
     return $out;
 }
 
@@ -570,49 +636,56 @@ function mod_for_public($mod) {
     $out = $mod;
     if (!empty($out['versions']) && is_array($out['versions'])) {
         $arr = [];
-        foreach ($out['versions'] as $v) {
-            $arr[] = version_for_public($out['id'], $v);
-        }
+        foreach ($out['versions'] as $v) $arr[] = version_for_public($out['id'], $v);
         $out['versions'] = $arr;
     }
     return $out;
 }
 
+// GET helper against the upstream Geode index, with an optional per-request
+// override via the X-Upstream-Url header (handy for testing against a different instance).
 function fetch_upstream_json($path, $query = []) {
     $base = defined('UPSTREAM_URL') ? UPSTREAM_URL : 'https://api.geode-sdk.org';
-
-    //echo("base = ".print_r($base, true)."\n");
-
     $url = $base . '/' . ltrim($path, '/');
 
-    $override = null;
     $hdrs = getallheaders_lower();
-    if (!empty($hdrs['x-upstream-url'])) $override = $hdrs['x-upstream-url'];
-    if (!empty($override)) if (stripos($override, 'http') === 0) $url = $override;
+    if (!empty($hdrs['x-upstream-url']) && stripos($hdrs['x-upstream-url'], 'http') === 0) {
+        $url = $hdrs['x-upstream-url'];
+    }
 
-    if (!empty($query)) $url .= (strpos($url, '?') === false ? '?' : '&') . http_build_query($query);
+    if (!empty($query)) {
+        $url .= (strpos($url, '?') === false ? '?' : '&') . http_build_query($query);
+    }
 
     $opts = ['http' => ['method' => 'GET', 'header' => "User-Agent: Open-Geode-Index\r\nAccept: application/json\r\n", 'timeout' => 22]];
     $ctx = stream_context_create($opts);
     $res = file_get_contents($url, false, $ctx);
     if ($res === false) return null;
+
     $j = json_decode($res, true);
     return $j ?: null;
 }
 
+// Follows redirects for $url without downloading the body, returning the final
+// URL and status code. Used to sanity-check a download link before redirecting to it.
 function resolve_final_url($url, $max_redirects = 8, $timeout = 8) {
     if (empty($url)) return ['url' => null, 'code' => null];
+
     $current = $url;
     $redirects = 0;
     $opts = ['http' => ['method' => 'GET', 'header' => "User-Agent: Open-Geode-Index\r\nAccept: */*\r\n", 'timeout' => $timeout, 'ignore_errors' => true]];
     $ctx = stream_context_create($opts);
+
     while ($redirects <= $max_redirects) {
         $headers = @get_headers($current, 1, $ctx);
         if ($headers === false) return ['url' => null, 'code' => null];
+
         $statusLine = isset($headers[0]) ? (is_array($headers[0]) ? end($headers[0]) : $headers[0]) : null;
         $code = null;
-        if ($statusLine && preg_match('/HTTP\/[\d\.]+\s+([0-9]{3})/i', $statusLine, $m)) $code = intval($m[1]);
-        // If redirect with Location
+        if ($statusLine && preg_match('/HTTP\/[\d\.]+\s+([0-9]{3})/i', $statusLine, $m)) {
+            $code = intval($m[1]);
+        }
+
         if ($code !== null && $code >= 300 && $code < 400 && !empty($headers['Location'])) {
             $loc = $headers['Location'];
             if (is_array($loc)) $loc = end($loc);
@@ -621,36 +694,43 @@ function resolve_final_url($url, $max_redirects = 8, $timeout = 8) {
                 $scheme = $base['scheme'] ?? 'https';
                 $host = $base['host'] ?? '';
                 $port = isset($base['port']) ? ':' . $base['port'] : '';
-                if (strpos($loc, '/') === 0) $loc = $scheme . '://' . $host . $port . $loc;
-                else $loc = $scheme . '://' . $host . $port . (isset($base['path']) ? dirname($base['path']) . '/' : '') . $loc;
+                if (strpos($loc, '/') === 0) {
+                    $loc = $scheme . '://' . $host . $port . $loc;
+                } else {
+                    $loc = $scheme . '://' . $host . $port . (isset($base['path']) ? dirname($base['path']) . '/' : '') . $loc;
+                }
             }
             $current = $loc;
             $redirects++;
             continue;
         }
-        // final status
+
         return ['url' => $current, 'code' => $code];
     }
+
     return ['url' => null, 'code' => null];
 }
 
-// "2024-02-19T21:58:33Z"
+// e.g. "2024-02-19T21:58:33Z"
 function iso8601_utc($ts = null) {
     if ($ts === null) $ts = time();
     return gmdate('Y-m-d\TH:i:s\Z', (int)$ts);
 }
 
 /* ======================= GitHub raw helpers ======================= */
+
 function fetch_github_raw_json($repo, $path) {
     $url = "https://raw.githubusercontent.com/{$repo}/HEAD/{$path}";
     $opts = ['http' => ['method' => 'GET', 'header' => "User-Agent: Open-Geode-Index\r\nAccept: application/json\r\n", 'timeout' => 8]];
     $ctx = stream_context_create($opts);
     $res = @file_get_contents($url, false, $ctx);
     if ($res === false) return null;
+
     $j = json_decode($res, true);
     if (!$j) return null;
     return $j;
 }
+
 function fetch_github_raw_text($repo, $path) {
     $url = "https://raw.githubusercontent.com/{$repo}/HEAD/{$path}";
     $opts = ['http' => ['method' => 'GET', 'header' => "User-Agent: Open-Geode-Index\r\nAccept: text/plain\r\n", 'timeout' => 8]];
@@ -661,42 +741,53 @@ function fetch_github_raw_text($repo, $path) {
 }
 
 /* ======================= API: tags ======================= */
+
 function api_tags_index() {
     $tags = db_read('tags.json') ?: [];
     $names = [];
     foreach ($tags as $t) $names[] = is_array($t) && isset($t['name']) ? $t['name'] : (string)$t;
     json_response(['error' => '', 'payload' => $names]);
 }
+
 function api_tags_detailed() {
     $tags = db_read('tags.json') ?: [];
     json_response(['error' => '', 'payload' => $tags]);
 }
 
 /* ======================= API: developers ======================= */
+
 function api_developers_index() {
     $q = $_GET;
     $devs = db_read('developers.json') ?: [];
+
     if (!empty($q['query'])) {
         $qq = strtolower($q['query']);
         $devs = array_values(array_filter($devs, function ($d) use ($qq) {
             return (strpos(strtolower($d['username']), $qq) !== false) || (strpos(strtolower($d['display_name']), $qq) !== false);
         }));
     }
+
     $page = isset($q['page']) ? max(1, intval($q['page'])) : 1;
     $per_page = isset($q['per_page']) ? max(1, intval($q['per_page'])) : 50;
     $count = count($devs);
     $data = array_slice($devs, ($page - 1) * $per_page, $per_page);
     json_response(['error' => '', 'payload' => ['data' => $data, 'count' => $count]]);
 }
+
 function api_developers_get($id) {
     $devs = db_read('developers.json') ?: [];
-    foreach ($devs as $d) if (intval($d['id']) === $id) return json_response(['error' => '', 'payload' => $d]);
+    foreach ($devs as $d) {
+        if (intval($d['id']) === $id) return json_response(['error' => '', 'payload' => $d]);
+    }
     json_response(['error' => 'Developer not found', 'payload' => null], 404);
 }
+
 function api_developers_update($id) {
     if (!require_admin()) return;
+
     $body = json_input();
     if (!$body) return json_response(['error' => 'bad request', 'payload' => null], 400);
+
     $devs = db_read('developers.json') ?: [];
     foreach ($devs as $i => $d) {
         if (intval($d['id']) === $id) {
@@ -710,8 +801,9 @@ function api_developers_update($id) {
 }
 
 /* ======================= API: auth ======================= */
+
 function api_login_github() {
-    // Start web OAuth device - return URL in payload
+    // Start web OAuth flow - return the GitHub authorize URL in the payload.
     $state = bin2hex(random_bytes(12));
     $_SESSION['oauth_state'] = $state;
     $redirect = CALLBACK_URL ?: current_url_base() . '/callback';
@@ -719,40 +811,53 @@ function api_login_github() {
     $url = "https://github.com/login/oauth/authorize?$params";
     json_response(['error' => '', 'payload' => $url]);
 }
+
 function api_login_github_web() {
     return api_login_github();
 }
+
 function api_login_callback() {
     $body = json_input() ?: $_REQUEST;
     if (empty($body['code']) || empty($body['state'])) return json_response(['error' => 'bad request', 'payload' => null], 400);
-    $code = $body['code']; $state = $body['state'];
+
+    $code = $body['code'];
+    $state = $body['state'];
     if (!isset($_SESSION['oauth_state']) || $_SESSION['oauth_state'] !== $state) return json_response(['error' => 'invalid state', 'payload' => null], 400);
+
     $token = github_exchange_code($code);
     if (!$token) return json_response(['error' => 'failed to obtain access token', 'payload' => null], 400);
+
     $user = github_get_user($token);
     if (!$user || empty($user['login'])) return json_response(['error' => 'failed to fetch GitHub user', 'payload' => null], 400);
+
     $_SESSION['github_user'] = $user['login'];
     $_SESSION['github_token'] = $token;
     ensure_developer_record($user['login'], $user['name'] ?? $user['login']);
     $local = issue_local_tokens_for_user($user['login']);
     json_response(['error' => '', 'payload' => $local]);
 }
+
 function api_login_github_poll() {
     json_response(['error' => 'not implemented', 'payload' => null], 501);
 }
+
 function api_login_github_token() {
     $body = json_input();
     if (!$body || empty($body['token'])) return json_response(['error' => 'bad request', 'payload' => null], 400);
+
     $pat = $body['token'];
     $user = github_get_user($pat);
     if (!$user || empty($user['login'])) return json_response(['error' => 'invalid access token', 'payload' => null], 400);
+
     ensure_developer_record($user['login'], $user['name'] ?? $user['login']);
     $local = issue_local_tokens_for_user($user['login']);
     json_response(['error' => '', 'payload' => $local]);
 }
+
 function api_refresh_token() {
     $body = json_input();
     if (!$body || empty($body['refresh_token'])) return json_response(['error' => 'bad request', 'payload' => null], 400);
+
     $refresh = $body['refresh_token'];
     $tokens = db_read('tokens.json') ?: [];
     foreach ($tokens as $at => $meta) {
@@ -768,18 +873,25 @@ function api_refresh_token() {
 }
 
 /* ======================= API: me ======================= */
+
 function api_get_me() {
     if (!require_auth()) return;
+
     $u = current_user();
     $devs = db_read('developers.json') ?: [];
-    foreach ($devs as $d) if (isset($d['username']) && $d['username'] === $u) return json_response(['error' => '', 'payload' => $d]);
+    foreach ($devs as $d) {
+        if (isset($d['username']) && $d['username'] === $u) return json_response(['error' => '', 'payload' => $d]);
+    }
     json_response(['error' => '', 'payload' => ['id' => null, 'username' => $u, 'display_name' => $u, 'verified' => false, 'admin' => is_admin(), 'github_id' => null]]);
 }
+
 function api_put_me() {
     if (!require_auth()) return;
+
     $u = current_user();
     $body = json_input();
     if (!$body) return json_response(['error' => 'bad request', 'payload' => null], 400);
+
     $devs = db_read('developers.json') ?: [];
     foreach ($devs as $i => $d) {
         if (isset($d['username']) && $d['username'] === $u) {
@@ -788,36 +900,49 @@ function api_put_me() {
             return json_response(['error' => '', 'payload' => $devs[$i]]);
         }
     }
+
     $new = ['id' => time(), 'username' => $u, 'display_name' => $body['display_name'] ?? $u, 'verified' => false, 'admin' => false, 'github_id' => null];
     $devs[] = $new;
     db_write('developers.json', $devs);
     return json_response(['error' => '', 'payload' => $new]);
 }
+
 function api_get_own_mods() {
     if (!require_auth()) return;
+
     $u = current_user();
     $mods = db_read('mods.json') ?: [];
     $own = array_values(array_filter($mods, function ($m) use ($u) {
         if (!empty($m['developers']) && is_array($m['developers'])) {
-            foreach ($m['developers'] as $d) if (!empty($d['username']) && $d['username'] === $u) return true;
+            foreach ($m['developers'] as $d) {
+                if (!empty($d['username']) && $d['username'] === $u) return true;
+            }
         }
         return false;
     }));
     json_response(['error' => '', 'payload' => $own]);
 }
+
 function api_delete_token() {
     if (!require_auth()) return;
+
     $h = getallheaders_lower();
     if (!empty($h['authorization']) && preg_match('/Bearer\s+(\S+)/i', $h['authorization'], $m)) {
         $token = $m[1];
         $tokens = db_read('tokens.json') ?: [];
-        if (isset($tokens[$token])) { unset($tokens[$token]); db_write('tokens.json', $tokens); return json_response(['error' => '', 'payload' => null], 204); }
+        if (isset($tokens[$token])) {
+            unset($tokens[$token]);
+            db_write('tokens.json', $tokens);
+            return json_response(['error' => '', 'payload' => null], 204);
+        }
         return json_response(['error' => 'not found', 'payload' => null], 404);
     }
     return json_response(['error' => '', 'payload' => null], 204);
 }
+
 function api_delete_tokens() {
     if (!require_auth()) return;
+
     $u = current_user();
     $tokens = db_read('tokens.json') ?: [];
     foreach ($tokens as $k => $meta) {
@@ -828,40 +953,63 @@ function api_delete_tokens() {
 }
 
 /* ======================= API: loader versions ======================= */
+
 function api_loader_versions_index() {
     $q = $_GET;
     $all = db_read('loader_versions.json') ?: [];
+
     if (isset($q['prerelease'])) {
         $pr = filter_var($q['prerelease'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-        if ($pr !== null) $all = array_values(array_filter($all, function ($v) use ($pr) { return !empty($v['prerelease']) === $pr; }));
+        if ($pr !== null) {
+            $all = array_values(array_filter($all, function ($v) use ($pr) { return !empty($v['prerelease']) === $pr; }));
+        }
     }
     if (!empty($q['gd'])) {
         $gd = (string)$q['gd'];
-        $all = array_values(array_filter($all, function ($v) use ($gd) { return !empty($v['gd']) && (is_string($v['gd']) ? strpos($v['gd'], $gd) !== false : true); }));
+        $all = array_values(array_filter($all, function ($v) use ($gd) {
+            return !empty($v['gd']) && (is_string($v['gd']) ? strpos($v['gd'], $gd) !== false : true);
+        }));
     }
+
     $page = isset($q['page']) ? max(1, intval($q['page'])) : 1;
     $per_page = isset($q['per_page']) ? max(1, intval($q['per_page'])) : 50;
     $count = count($all);
     $data = array_slice($all, ($page - 1) * $per_page, $per_page);
     json_response(['error' => '', 'payload' => ['data' => $data, 'count' => $count]]);
 }
+
 function api_loader_versions_create() {
     if (!require_admin()) return;
+
     $body = json_input();
-    if (!$body || empty($body['tag']) || empty($body['commit_hash']) || empty($body['gd'])) return json_response(['error' => 'bad request', 'payload' => null], 400);
+    if (!$body || empty($body['tag']) || empty($body['commit_hash']) || empty($body['gd'])) {
+        return json_response(['error' => 'bad request', 'payload' => null], 400);
+    }
+
     $all = db_read('loader_versions.json') ?: [];
-    $v = ['version' => $body['tag'], 'tag' => $body['tag'], 'gd' => $body['gd'], 'prerelease' => !empty($body['prerelease']), 'commit_hash' => $body['commit_hash'], 'created_at' => iso8601_utc()];
+    $v = [
+        'version'     => $body['tag'],
+        'tag'         => $body['tag'],
+        'gd'          => $body['gd'],
+        'prerelease'  => !empty($body['prerelease']),
+        'commit_hash' => $body['commit_hash'],
+        'created_at'  => iso8601_utc(),
+    ];
     array_unshift($all, $v);
     db_write('loader_versions.json', $all);
     json_response(['error' => '', 'payload' => $v], 201);
 }
+
 function api_loader_versions_get($version) {
     $all = db_read('loader_versions.json') ?: [];
-    foreach ($all as $v) if ($v['version'] === $version || $v['tag'] === $version) return json_response(['error' => '', 'payload' => $v]);
+    foreach ($all as $v) {
+        if ($v['version'] === $version || $v['tag'] === $version) return json_response(['error' => '', 'payload' => $v]);
+    }
     json_response(['error' => 'not found', 'payload' => null], 404);
 }
 
 /* ======================= API: mods ======================= */
+
 function api_mods_index() {
     $q = $_GET;
     $mods = db_read('mods.json') ?: [];
@@ -878,35 +1026,37 @@ function api_mods_index() {
         $wanted = array_map('trim', explode(',', $q['tags']));
         $mods = array_values(array_filter($mods, function ($m) use ($wanted) {
             $tags = $m['tags'] ?? [];
-            foreach ($wanted as $t) if (!in_array($t, $tags)) return false;
+            foreach ($wanted as $t) {
+                if (!in_array($t, $tags)) return false;
+            }
             return true;
         }));
     }
     if (isset($q['featured'])) {
         $f = filter_var($q['featured'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-        if ($f !== null) $mods = array_values(array_filter($mods, function ($m) use ($f) { return !empty($m['featured']) === $f; }));
+        if ($f !== null) {
+            $mods = array_values(array_filter($mods, function ($m) use ($f) { return !empty($m['featured']) === $f; }));
+        }
     }
 
     // sorting
     $sort = isset($q['sort']) ? (string)$q['sort'] : 'downloads';
-    // normalize date helper
-    $ts = function($d) {
+
+    $ts = function ($d) {
         if (empty($d)) return 0;
         $t = @strtotime($d);
         return $t === false ? 0 : $t;
     };
 
-    usort($mods, function($a, $b) use ($sort, $ts) {
-        // helper tiebreaker: updated_at desc, id asc
-        $tiebreak = function($x, $y) use ($ts) {
-            $ux = $ts($x['updated_at'] ?? null);
-            $uy = $ts($y['updated_at'] ?? null);
-            if ($ux !== $uy) return $uy <=> $ux ? $uy <=> $ux : 0; // want desc
-            $ida = strtolower($x['id'] ?? '');
-            $idb = strtolower($y['id'] ?? '');
-            return $ida <=> $idb;
-        };
+    // Shared tiebreaker for equal sort keys: most recently updated first, then id A-Z.
+    $tiebreak = function ($x, $y) use ($ts) {
+        $ux = $ts($x['updated_at'] ?? null);
+        $uy = $ts($y['updated_at'] ?? null);
+        if ($ux !== $uy) return $uy <=> $ux;
+        return strtolower($x['id'] ?? '') <=> strtolower($y['id'] ?? '');
+    };
 
+    usort($mods, function ($a, $b) use ($sort, $ts, $tiebreak) {
         switch ($sort) {
             case 'recently_updated':
                 $a_t = $ts($a['updated_at'] ?? null);
@@ -935,7 +1085,7 @@ function api_mods_index() {
                 return $nb <=> $na;
             case 'downloads':
             default:
-                // downloads descending; fallback to mod.download_count or sum of version download_count
+                // downloads descending; fallback to mod.download_count
                 $da = isset($a['download_count']) ? (int)$a['download_count'] : 0;
                 $db = isset($b['download_count']) ? (int)$b['download_count'] : 0;
                 if ($da === $db) return $tiebreak($a, $b);
@@ -959,6 +1109,7 @@ function api_mods_index() {
 function api_mods_create() {
     if (!require_auth()) return;
     $u = current_user();
+
     $body = json_input();
     if (!$body) return json_response(['error' => 'bad request - empty body', 'payload' => null], 400);
     if (empty($body['download_link'])) return json_response(['error' => 'bad request - download_link required', 'payload' => null], 400);
@@ -993,8 +1144,11 @@ function api_mods_create() {
     $gd_val = isset($modjson['gd']) && is_array($modjson['gd']) ? normalize_gd($modjson['gd']) : null;
 
     $mods = db_read('mods.json') ?: [];
+
     // reject duplicates by id
-    foreach ($mods as $m) if (isset($m['id']) && $m['id'] === $mod_id) return json_response(['error' => 'mod already exists (by id)', 'payload' => null], 409);
+    foreach ($mods as $m) {
+        if (isset($m['id']) && $m['id'] === $mod_id) return json_response(['error' => 'mod already exists (by id)', 'payload' => null], 409);
+    }
 
     // compute hash
     $hash_val = compute_remote_sha256($body['download_link']);
@@ -1002,48 +1156,48 @@ function api_mods_create() {
 
     $now = iso8601_utc();
     $version_entry = [
-        'name' => $mod_name,
-        'version' => $initial_version,
-        'download_link' => $body['download_link'],
-        'hash' => $hash_val,
-        'geode' => $geode_val,
-        'download_count' => 0,
-        'early_load' => !empty($body['early_load']),
+        'name'              => $mod_name,
+        'version'           => $initial_version,
+        'download_link'     => $body['download_link'],
+        'hash'              => $hash_val,
+        'geode'             => $geode_val,
+        'download_count'    => 0,
+        'early_load'        => !empty($body['early_load']),
         'requires_patching' => !empty($body['requires_patching']),
-        'api' => !empty($body['api']),
-        'mod_id' => $mod_id,
-        'gd' => expand_gd_platforms($gd_val),
-        'status' => 'accepted',
-        'description' => isset($modjson['description']) ? $modjson['description'] : null,
-        'created_at' => $now,
-        'updated_at' => $now,
+        'api'               => !empty($body['api']),
+        'mod_id'            => $mod_id,
+        'gd'                => expand_gd_platforms($gd_val),
+        'status'            => 'accepted',
+        'description'       => isset($modjson['description']) ? $modjson['description'] : null,
+        'created_at'        => $now,
+        'updated_at'        => $now,
     ];
 
     $repository_url = $repo ? "https://github.com/{$repo}" : null;
     $logo_url = !empty($modjson['logo_url']) ? $modjson['logo_url'] : ($repo ? "https://raw.githubusercontent.com/{$repo}/HEAD/logo.png" : null);
 
-    $devs = [];
-    if (!empty($modjson['developers'])) $devs = map_modjson_developers($modjson['developers'], $u);
-    else $devs = map_modjson_developers([], $u);
+    $devs = !empty($modjson['developers'])
+        ? map_modjson_developers($modjson['developers'], $u)
+        : map_modjson_developers([], $u);
 
     $mod = [
-        'id' => $mod_id,
-        'about' => $mod_about,
-        'changelog' => $changelog,
-        'created_at' => $now,
-        'updated_at' => $now,
-        'developers' => $devs,
+        'id'             => $mod_id,
+        'about'          => $mod_about,
+        'changelog'      => $changelog,
+        'created_at'     => $now,
+        'updated_at'     => $now,
+        'developers'     => $devs,
         'download_count' => 0,
-        'featured' => $featured,
-        'tags' => $mod_tags,
-        'versions' => [$version_entry],
-        'repo' => $repo,
-        'repository' => $repository_url,
-        'logo_url' => $logo_url,
-        'links' => isset($modjson['links']) && is_array($modjson['links']) ? $modjson['links'] : null,
-        'submitted_by' => $u,
+        'featured'       => $featured,
+        'tags'           => $mod_tags,
+        'versions'       => [$version_entry],
+        'repo'           => $repo,
+        'repository'     => $repository_url,
+        'logo_url'       => $logo_url,
+        'links'          => isset($modjson['links']) && is_array($modjson['links']) ? $modjson['links'] : null,
+        'submitted_by'   => $u,
     ];
-    
+
     $mods[] = $mod;
     db_write('mods.json', $mods);
     json_response(['error' => '', 'payload' => mod_for_public($mod)], 201);
@@ -1051,13 +1205,15 @@ function api_mods_create() {
 
 function api_mods_get($id) {
     $mods = db_read('mods.json') ?: [];
-    foreach ($mods as $m) if ($m['id'] === $id) {
-        if ((empty($m['about']) or !empty($m['prefer_github_info'])) && !empty($m['repo'])) {
+    foreach ($mods as $m) {
+        if ($m['id'] !== $id) continue;
+
+        if ((empty($m['about']) || !empty($m['prefer_github_info'])) && !empty($m['repo'])) {
             $text = fetch_github_raw_text($m['repo'], 'about.md');
             if ($text === null) $text = fetch_github_raw_text($m['repo'], 'README.md');
             if ($text !== null) $m['about'] = $text;
         }
-        if ((empty($m['changelog']) or !empty($m['prefer_github_info'])) && !empty($m['repo'])) {
+        if ((empty($m['changelog']) || !empty($m['prefer_github_info'])) && !empty($m['repo'])) {
             $text = fetch_github_raw_text($m['repo'], 'changelog.md');
             if ($text === null) $text = fetch_github_raw_text($m['repo'], 'CHANGELOG.md');
             if ($text !== null) $m['changelog'] = $text;
@@ -1080,8 +1236,10 @@ function api_mods_get($id) {
 
 function api_mods_update_admin($id) {
     if (!require_admin()) return;
+
     $body = json_input();
     if (!$body) return json_response(['error' => 'bad request', 'payload' => null], 400);
+
     $mods = db_read('mods.json') ?: [];
     foreach ($mods as $i => $m) {
         if ($m['id'] === $id) {
@@ -1098,122 +1256,121 @@ function api_mods_update_admin($id) {
 function api_mods_update_owner($id) {
     if (!require_auth()) return;
     $u = current_user();
+
     $mods = db_read('mods.json') ?: [];
     foreach ($mods as $i => $m) {
-        if ($m['id'] === $id) {
-            $allowed = is_admin();
-            if (!$allowed) {
-                foreach ($m['developers'] as $d) if (!empty($d['username']) && $d['username'] === $u && !empty($d['is_owner'])) { $allowed = true; break; }
-            }
-            if (!$allowed) return json_response(['error' => 'forbidden - only owner or admin can update', 'payload' => null], 403);
-            $body = json_input();
-            if (!$body) return json_response(['error' => 'bad request - empty body', 'payload' => null], 400);
+        if ($m['id'] !== $id) continue;
 
-            if (isset($body['tags'])) {
-                if (!is_array($body['tags'])) $body['tags'] = array_values(array_filter(array_map('trim', explode(',', $body['tags']))));
-                $mods[$i]['tags'] = $body['tags'];
+        $allowed = is_admin();
+        if (!$allowed) {
+            foreach ($m['developers'] as $d) {
+                if (!empty($d['username']) && $d['username'] === $u && !empty($d['is_owner'])) { $allowed = true; break; }
             }
+        }
+        if (!$allowed) return json_response(['error' => 'forbidden - only owner or admin can update', 'payload' => null], 403);
 
-            // allow owner/admin to update owner's display_name
-            if (isset($body['owner_display_name'])) {
-                $newname = trim((string)$body['owner_display_name']);
-                if ($newname !== '') {
-                    $updated = false;
+        $body = json_input();
+        if (!$body) return json_response(['error' => 'bad request - empty body', 'payload' => null], 400);
+
+        if (isset($body['tags'])) {
+            if (!is_array($body['tags'])) $body['tags'] = array_values(array_filter(array_map('trim', explode(',', $body['tags']))));
+            $mods[$i]['tags'] = $body['tags'];
+        }
+
+        // allow owner/admin to update owner's display_name
+        if (isset($body['owner_display_name'])) {
+            $newname = trim((string)$body['owner_display_name']);
+            if ($newname !== '') {
+                $updated = false;
+                if (!empty($mods[$i]['developers']) && is_array($mods[$i]['developers'])) {
                     // prefer explicit is_owner flag
-                    if (!empty($mods[$i]['developers']) && is_array($mods[$i]['developers'])) {
-                        foreach ($mods[$i]['developers'] as $di => $dev) {
-                            if (!empty($dev['is_owner'])) {
-                                $mods[$i]['developers'][$di]['display_name'] = $newname;
-                                $updated = true;
-                                break;
-                            }
-                        }
-                        // fallback to first developer if no is_owner found
-                        if (!$updated && count($mods[$i]['developers']) > 0) {
-                            $mods[$i]['developers'][0]['display_name'] = $newname;
+                    foreach ($mods[$i]['developers'] as $di => $dev) {
+                        if (!empty($dev['is_owner'])) {
+                            $mods[$i]['developers'][$di]['display_name'] = $newname;
                             $updated = true;
+                            break;
                         }
                     }
-                    if ($updated) {
-                        // update mod updated_at (will be written later when db_write is called)
-                        $mods[$i]['updated_at'] = iso8601_utc();
+                    // fallback to first developer if no is_owner found
+                    if (!$updated && count($mods[$i]['developers']) > 0) {
+                        $mods[$i]['developers'][0]['display_name'] = $newname;
+                        $updated = true;
                     }
                 }
+                if ($updated) $mods[$i]['updated_at'] = iso8601_utc();
+            }
+        }
+
+        if (isset($body['prefer_github_info'])) $mods[$i]['prefer_github_info'] = (bool)$body['prefer_github_info'];
+
+        if (!empty($body['download_link'])) {
+            $meta = extract_metadata_from_geode($body['download_link']);
+            if ($meta === null || empty($meta['modjson'])) {
+                return json_response(['error' => 'bad request - mod.json not found inside .geode', 'payload' => null], 400);
+            }
+            $inner = $meta['modjson'];
+
+            if (!empty($inner['id']) && $inner['id'] !== $mods[$i]['id']) {
+                return json_response(['error' => 'bad request - mod id inside .geode does not match existing mod id', 'payload' => null], 400);
             }
 
-            if (isset($body['prefer_github_info'])) $mods[$i]['prefer_github_info'] = (bool)$body['prefer_github_info'];
+            $ver_raw = $body['version'] ?? ($inner['version'] ?? null);
+            $ver = normalize_version($ver_raw) ?: ($ver_raw ?: null);
+            if ($ver === null) $ver = date('YmdHis');
 
-            if (!empty($body['download_link'])) {
-                $meta = extract_metadata_from_geode($body['download_link']);
-                if ($meta === null || empty($meta['modjson'])) {
-                    return json_response(['error' => 'bad request - mod.json not found inside .geode', 'payload' => null], 400);
-                }
-                $inner = $meta['modjson'];
+            $now = iso8601_utc();
+            $hash_val = compute_remote_sha256($body['download_link']);
+            if ($hash_val === null) return json_response(['error' => 'bad request - can\'t get sha256 from download_link', 'payload' => null], 400);
 
-                if (!empty($inner['id']) && $inner['id'] !== $mods[$i]['id']) {
-                    return json_response(['error' => 'bad request - mod id inside .geode does not match existing mod id', 'payload' => null], 400);
-                }
+            $newver = [
+                'name'              => isset($inner['name']) ? $inner['name'] : (isset($body['name']) ? $body['name'] : ($mods[$i]['repo'] ?? $mods[$i]['id'])),
+                'version'           => $ver,
+                'download_link'     => $body['download_link'],
+                'hash'              => $hash_val,
+                'geode'             => isset($inner['geode']) ? normalize_geode($inner['geode']) : (isset($body['geode']) ? normalize_geode($body['geode']) : null),
+                'download_count'    => 0,
+                'early_load'        => !empty($body['early_load']),
+                'requires_patching' => !empty($body['requires_patching']),
+                'api'               => !empty($inner['api']) ? (bool)$inner['api'] : !empty($body['api']),
+                'mod_id'            => $mods[$i]['id'],
+                'gd'                => isset($inner['gd']) ? normalize_gd($inner['gd']) : (isset($body['gd']) && is_array($body['gd']) ? normalize_gd($body['gd']) : null),
+                'status'            => 'accepted',
+                'description'       => isset($inner['description']) ? $inner['description'] : (isset($body['description']) ? $body['description'] : (!empty($meta['about']) ? mb_strimwidth($meta['about'], 0, 1000, '...') : null)),
+                'created_at'        => $now,
+                'updated_at'        => $now,
+            ];
 
-                $ver_raw = $body['version'] ?? ($inner['version'] ?? null);
-                $ver = normalize_version($ver_raw) ?: ($ver_raw ?: null);
-                if ($ver === null) {
-                    $ver = date('YmdHis');
-                }
-
-                $now = iso8601_utc();
-                $hash_val = compute_remote_sha256($body['download_link']);
-                if ($hash_val === null) return json_response(['error' => 'bad request - can\'t get sha256 from download_link', 'payload' => null], 400);
-
-                $newver = [
-                    'name' => isset($inner['name']) ? $inner['name'] : (isset($body['name']) ? $body['name'] : ($mods[$i]['repo'] ?? $mods[$i]['id'])),
-                    'version' => $ver,
-                    'download_link' => $body['download_link'],
-                    'hash' => $hash_val,
-                    'geode' => isset($inner['geode']) ? normalize_geode($inner['geode']) : (isset($body['geode']) ? normalize_geode($body['geode']) : null),
-                    'download_count' => 0,
-                    'early_load' => !empty($body['early_load']),
-                    'requires_patching' => !empty($body['requires_patching']),
-                    'api' => !empty($inner['api']) ? (bool)$inner['api'] : !empty($body['api']),
-                    'mod_id' => $mods[$i]['id'],
-                    'gd' => isset($inner['gd']) ? normalize_gd($inner['gd']) : (isset($body['gd']) && is_array($body['gd']) ? normalize_gd($body['gd']) : null),
-                    'status' => 'accepted',
-                    'description' => isset($inner['description']) ? $inner['description'] : (isset($body['description']) ? $body['description'] : (!empty($meta['about']) ? mb_strimwidth($meta['about'], 0, 1000, '...') : null)),
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
-
-                $replaced = false;
-                foreach ($mods[$i]['versions'] as $vi => $vv) {
-                    if ($vv['version'] === $newver['version']) {
-                        $mods[$i]['versions'][$vi] = $newver;
-                        $replaced = true;
-                        break;
-                    }
-                }
-                if (!$replaced) array_unshift($mods[$i]['versions'], $newver);
-
-                if (!empty($meta['about'])) $mods[$i]['about'] = $meta['about'];
-                if (!empty($meta['changelog'])) $mods[$i]['changelog'] = $meta['changelog'];
-
-                $mods[$i]['updated_at'] = iso8601_utc();
-                db_write('mods.json', $mods);
-                return json_response(['error' => '', 'payload' => $mods[$i]], 200);
-            }
-
-            if (isset($body['links']) && is_array($body['links'])) $mods[$i]['links'] = $body['links'];
-
-            if (!empty($mods[$i]['versions'][0]['download_link'])) {
-                $meta2 = extract_metadata_from_geode($mods[$i]['versions'][0]['download_link']);
-                if ($meta2 !== null) {
-                    if (!empty($meta2['about'])) $mods[$i]['about'] = $meta2['about'];
-                    if (!empty($meta2['changelog'])) $mods[$i]['changelog'] = $meta2['changelog'];
+            $replaced = false;
+            foreach ($mods[$i]['versions'] as $vi => $vv) {
+                if ($vv['version'] === $newver['version']) {
+                    $mods[$i]['versions'][$vi] = $newver;
+                    $replaced = true;
+                    break;
                 }
             }
+            if (!$replaced) array_unshift($mods[$i]['versions'], $newver);
+
+            if (!empty($meta['about'])) $mods[$i]['about'] = $meta['about'];
+            if (!empty($meta['changelog'])) $mods[$i]['changelog'] = $meta['changelog'];
 
             $mods[$i]['updated_at'] = iso8601_utc();
             db_write('mods.json', $mods);
             return json_response(['error' => '', 'payload' => $mods[$i]], 200);
         }
+
+        if (isset($body['links']) && is_array($body['links'])) $mods[$i]['links'] = $body['links'];
+
+        if (!empty($mods[$i]['versions'][0]['download_link'])) {
+            $meta2 = extract_metadata_from_geode($mods[$i]['versions'][0]['download_link']);
+            if ($meta2 !== null) {
+                if (!empty($meta2['about'])) $mods[$i]['about'] = $meta2['about'];
+                if (!empty($meta2['changelog'])) $mods[$i]['changelog'] = $meta2['changelog'];
+            }
+        }
+
+        $mods[$i]['updated_at'] = iso8601_utc();
+        db_write('mods.json', $mods);
+        return json_response(['error' => '', 'payload' => $mods[$i]], 200);
     }
     json_response(['error' => 'mod not found', 'payload' => null], 404);
 }
@@ -1222,35 +1379,33 @@ function api_mods_delete($id) {
     // allow admin or owner
     if (!require_auth()) return;
     $u = current_user();
+
     $mods = db_read('mods.json') ?: [];
     foreach ($mods as $i => $m) {
-        if ($m['id'] === $id) {
-            $allowed = is_admin();
-            if (!$allowed) {
-                // check owners
-                foreach ($m['developers'] as $d) {
-                    if (!empty($d['username']) && $d['username'] === $u && !empty($d['is_owner'])) {
-                        $allowed = true;
-                        break;
-                    }
-                }
+        if ($m['id'] !== $id) continue;
+
+        $allowed = is_admin();
+        if (!$allowed) {
+            foreach ($m['developers'] as $d) {
+                if (!empty($d['username']) && $d['username'] === $u && !empty($d['is_owner'])) { $allowed = true; break; }
             }
-            if (!$allowed) return json_response(['error' => 'forbidden - only owner or admin can delete', 'payload' => null], 403);
-
-            // remove mod
-            array_splice($mods, $i, 1);
-            db_write('mods.json', $mods);
-
-            // remove related deprecations (cleanup)
-            $deprec = db_read('deprecations.json') ?: [];
-            $deprec = array_values(array_filter($deprec, function ($d) use ($id) { return !isset($d['mod_id']) || $d['mod_id'] !== $id; }));
-            db_write('deprecations.json', $deprec);
-
-            return json_response(['error' => '', 'payload' => null], 204);
         }
+        if (!$allowed) return json_response(['error' => 'forbidden - only owner or admin can delete', 'payload' => null], 403);
+
+        // remove mod
+        array_splice($mods, $i, 1);
+        db_write('mods.json', $mods);
+
+        // remove related deprecations (cleanup)
+        $deprec = db_read('deprecations.json') ?: [];
+        $deprec = array_values(array_filter($deprec, function ($d) use ($id) { return !isset($d['mod_id']) || $d['mod_id'] !== $id; }));
+        db_write('deprecations.json', $deprec);
+
+        return json_response(['error' => '', 'payload' => null], 204);
     }
     return json_response(['error' => 'mod not found', 'payload' => null], 404);
 }
+
 function api_mods_updates() {
     $q = $_GET;
     if (empty($q['ids'])) return json_response(['error' => 'bad request - ids required', 'payload' => null], 400);
@@ -1273,7 +1428,9 @@ function api_mods_updates() {
     $deprec = db_read('deprecations.json') ?: [];
 
     $mods_index = [];
-    foreach ($mods as $m) if (!empty($m['id'])) $mods_index[$m['id']] = $m;
+    foreach ($mods as $m) {
+        if (!empty($m['id'])) $mods_index[$m['id']] = $m;
+    }
 
     $local_deprec = array_values(array_filter($deprec, function ($d) use ($ids) {
         return isset($d['mod_id']) && in_array($d['mod_id'], $ids);
@@ -1321,34 +1478,31 @@ function api_mods_updates() {
         if ($chosen === null) continue;
 
         $local_updates[] = [
-            'id' => $mod['id'],
-            'version' => $chosen['version'] ?? '',
-            'download_link' => $chosen['download_link'] ?? '',
-            'dependencies' => isset($chosen['dependencies']) && is_array($chosen['dependencies']) ? $chosen['dependencies'] : [],
+            'id'                => $mod['id'],
+            'version'           => $chosen['version'] ?? '',
+            'download_link'     => $chosen['download_link'] ?? '',
+            'dependencies'      => isset($chosen['dependencies']) && is_array($chosen['dependencies']) ? $chosen['dependencies'] : [],
             'incompatibilities' => isset($chosen['incompatibilities']) && is_array($chosen['incompatibilities']) ? $chosen['incompatibilities'] : [],
-            'gd' => isset($chosen['gd']) ? (is_array($chosen['gd']) ? $chosen['gd'] : null) : null,
-            'replacement' => null
+            'gd'                => isset($chosen['gd']) ? (is_array($chosen['gd']) ? $chosen['gd'] : null) : null,
+            'replacement'       => null,
         ];
     }
 
+    // Merge upstream + local updates, keeping upstream ordering and letting local entries win.
     $merged_updates = [];
-    $up_index = [];
-    foreach ($up_payload['updates'] as $u) if (!empty($u['id'])) $up_index[$u['id']] = $u;
-    
     foreach ($up_payload['updates'] as $u) $merged_updates[$u['id']] = $u;
     foreach ($local_updates as $lu) $merged_updates[$lu['id']] = $lu; // overwrites if present
-    
-    $final_updates = [];
 
+    $final_updates = [];
     foreach ($up_payload['updates'] as $u) {
         if (isset($merged_updates[$u['id']])) {
             $final_updates[] = $merged_updates[$u['id']];
             unset($merged_updates[$u['id']]);
         }
     }
-    
     foreach ($merged_updates as $rem) $final_updates[] = $rem;
 
+    // Merge deprecations, de-duplicating by mod_id + id (or a content hash if no id).
     $all_deprec = array_merge($up_payload['deprecations'], $local_deprec);
     $seen = [];
     $final_deprec = [];
@@ -1363,15 +1517,19 @@ function api_mods_updates() {
 }
 
 /* ======================= API: deprecations ======================= */
+
 function api_deprecations_index($modid) {
     $deprec = db_read('deprecations.json') ?: [];
     $out = array_values(array_filter($deprec, function ($d) use ($modid) { return isset($d['mod_id']) && $d['mod_id'] === $modid; }));
     json_response(['error' => '', 'payload' => $out]);
 }
+
 function api_deprecations_create($modid) {
     if (!require_auth()) return;
+
     $body = json_input();
     if (!$body || empty($body['by']) || empty($body['reason'])) return json_response(['error' => 'bad request', 'payload' => null], 400);
+
     $deprec = db_read('deprecations.json') ?: [];
     $id = time();
     $row = ['id' => $id, 'mod_id' => $modid, 'by' => $body['by'], 'reason' => $body['reason']];
@@ -1379,17 +1537,22 @@ function api_deprecations_create($modid) {
     db_write('deprecations.json', $deprec);
     json_response(['error' => '', 'payload' => $row], 201);
 }
+
 function api_deprecations_clear_all($modid) {
     if (!require_admin()) return;
+
     $deprec = db_read('deprecations.json') ?: [];
     $deprec = array_values(array_filter($deprec, function ($d) use ($modid) { return !isset($d['mod_id']) || $d['mod_id'] !== $modid; }));
     db_write('deprecations.json', $deprec);
     json_response(['error' => '', 'payload' => null], 204);
 }
+
 function api_deprecations_update($modid, $depid) {
     if (!require_admin()) return;
+
     $body = json_input();
     if (!$body) return json_response(['error' => 'bad request', 'payload' => null], 400);
+
     $deprec = db_read('deprecations.json') ?: [];
     foreach ($deprec as $i => $d) {
         if ($d['id'] === $depid && $d['mod_id'] === $modid) {
@@ -1401,55 +1564,73 @@ function api_deprecations_update($modid, $depid) {
     }
     json_response(['error' => 'not found', 'payload' => null], 404);
 }
+
 function api_deprecations_delete($modid, $depid) {
     if (!require_admin()) return;
+
     $deprec = db_read('deprecations.json') ?: [];
     foreach ($deprec as $i => $d) {
-        if ($d['id'] === $depid && $d['mod_id'] === $modid) { array_splice($deprec, $i, 1); db_write('deprecations.json', $deprec); return json_response(['error' => '', 'payload' => null], 204); }
-    }
-    json_response(['error' => 'not found', 'payload' => null], 404);
-}
-
-/* ======================= API: mod developers ======================= */
-function api_mod_add_developer($modid) {
-    if (!require_auth()) return;
-    $body = json_input();
-    if (!$body || empty($body['username'])) return json_response(['error' => 'bad request', 'payload' => null], 400);
-    $mods = db_read('mods.json') ?: [];
-    foreach ($mods as $i => $m) {
-        if ($m['id'] === $modid) {
-            $u = current_user(); $allowed = is_admin();
-            if (!$allowed) {
-                foreach ($m['developers'] as $d) if (!empty($d['username']) && $d['username'] === $u && !empty($d['is_owner'])) { $allowed = true; break; }
-            }
-            if (!$allowed) return json_response(['error' => 'forbidden', 'payload' => null], 403);
-            $mods[$i]['developers'][] = ['id' => null, 'username' => $body['username'], 'display_name' => $body['username'], 'is_owner' => !empty($body['is_owner'])];
-            db_write('mods.json', $mods);
+        if ($d['id'] === $depid && $d['mod_id'] === $modid) {
+            array_splice($deprec, $i, 1);
+            db_write('deprecations.json', $deprec);
             return json_response(['error' => '', 'payload' => null], 204);
         }
     }
     json_response(['error' => 'not found', 'payload' => null], 404);
 }
 
-function api_mod_remove_developer($modid, $username) {
+/* ======================= API: mod developers ======================= */
+
+function api_mod_add_developer($modid) {
     if (!require_auth()) return;
+
+    $body = json_input();
+    if (!$body || empty($body['username'])) return json_response(['error' => 'bad request', 'payload' => null], 400);
+
     $mods = db_read('mods.json') ?: [];
     foreach ($mods as $i => $m) {
-        if ($m['id'] === $modid) {
-            $u = current_user(); $allowed = is_admin();
-            if (!$allowed) {
-                foreach ($m['developers'] as $d) if (!empty($d['username']) && $d['username'] === $u && !empty($d['is_owner'])) { $allowed = true; break; }
+        if ($m['id'] !== $modid) continue;
+
+        $u = current_user();
+        $allowed = is_admin();
+        if (!$allowed) {
+            foreach ($m['developers'] as $d) {
+                if (!empty($d['username']) && $d['username'] === $u && !empty($d['is_owner'])) { $allowed = true; break; }
             }
-            if (!$allowed) return json_response(['error' => 'forbidden', 'payload' => null], 403);
-            foreach ($mods[$i]['developers'] as $j => $d) {
-                if (!empty($d['username']) && $d['username'] === $username) {
-                    array_splice($mods[$i]['developers'], $j, 1);
-                    db_write('mods.json', $mods);
-                    return json_response(['error' => '', 'payload' => null], 204);
-                }
-            }
-            return json_response(['error' => 'developer not found', 'payload' => null], 404);
         }
+        if (!$allowed) return json_response(['error' => 'forbidden', 'payload' => null], 403);
+
+        $mods[$i]['developers'][] = ['id' => null, 'username' => $body['username'], 'display_name' => $body['username'], 'is_owner' => !empty($body['is_owner'])];
+        db_write('mods.json', $mods);
+        return json_response(['error' => '', 'payload' => null], 204);
+    }
+    json_response(['error' => 'not found', 'payload' => null], 404);
+}
+
+function api_mod_remove_developer($modid, $username) {
+    if (!require_auth()) return;
+
+    $mods = db_read('mods.json') ?: [];
+    foreach ($mods as $i => $m) {
+        if ($m['id'] !== $modid) continue;
+
+        $u = current_user();
+        $allowed = is_admin();
+        if (!$allowed) {
+            foreach ($m['developers'] as $d) {
+                if (!empty($d['username']) && $d['username'] === $u && !empty($d['is_owner'])) { $allowed = true; break; }
+            }
+        }
+        if (!$allowed) return json_response(['error' => 'forbidden', 'payload' => null], 403);
+
+        foreach ($mods[$i]['developers'] as $j => $d) {
+            if (!empty($d['username']) && $d['username'] === $username) {
+                array_splice($mods[$i]['developers'], $j, 1);
+                db_write('mods.json', $mods);
+                return json_response(['error' => '', 'payload' => null], 204);
+            }
+        }
+        return json_response(['error' => 'developer not found', 'payload' => null], 404);
     }
     json_response(['error' => 'not found', 'payload' => null], 404);
 }
@@ -1467,13 +1648,14 @@ function api_mod_logo($modid) {
     if (defined('UPSTREAM_URL') && UPSTREAM_URL) {
         $url = UPSTREAM_URL . '/v1/mods/' . rawurlencode($modid) . '/logo';
 
-        $override = null;
         $hdrs = getallheaders_lower();
-        if (!empty($hdrs['x-upstream-url'])) $override = $hdrs['x-upstream-url'];
-        if (!empty($override)) if (stripos($override, 'http') === 0) $url = $override;
+        if (!empty($hdrs['x-upstream-url']) && stripos($hdrs['x-upstream-url'], 'http') === 0) {
+            $url = $hdrs['x-upstream-url'];
+        }
 
         if (@file_get_contents($url)) {
-            header('Location: '.$url); exit(); 
+            header('Location: ' . $url);
+            exit;
         }
     }
 
@@ -1481,6 +1663,7 @@ function api_mod_logo($modid) {
 }
 
 /* ======================= API: versions ======================= */
+
 function api_mod_versions_index($modid) {
     $mods = db_read('mods.json') ?: [];
     foreach ($mods as $m) {
@@ -1503,64 +1686,72 @@ function api_mod_versions_index($modid) {
 
     json_response(['error' => 'mod not found', 'payload' => null], 404);
 }
+
 function api_mod_versions_create($modid) {
     if (!require_auth()) return;
+
     $body = json_input();
     if (!$body || empty($body['version']) || empty($body['download_link'])) return json_response(['error' => 'bad request', 'payload' => null], 400);
+
     $mods = db_read('mods.json') ?: [];
     foreach ($mods as $i => $m) {
-        if ($m['id'] === $modid) {
-            $u = current_user(); $allowed = is_admin();
-            if (!$allowed) {
-                foreach ($m['developers'] as $d) if (!empty($d['username']) && $d['username'] === $u && !empty($d['is_owner'])) { $allowed = true; break; }
-            }
-            if (!$allowed) return json_response(['error' => 'forbidden', 'payload' => null], 403);
+        if ($m['id'] !== $modid) continue;
 
-            // extract metadata from .geode (required)
-            $meta = extract_metadata_from_geode($body['download_link']);
-            if ($meta === null || empty($meta['modjson'])) {
-                return json_response(['error' => 'bad request - mod.json not found inside .geode', 'payload' => null], 400);
+        $u = current_user();
+        $allowed = is_admin();
+        if (!$allowed) {
+            foreach ($m['developers'] as $d) {
+                if (!empty($d['username']) && $d['username'] === $u && !empty($d['is_owner'])) { $allowed = true; break; }
             }
-            $inner = $meta['modjson'];
-            if (!empty($inner['id']) && $inner['id'] !== $modid) {
-                return json_response(['error' => 'bad request - mod id inside .geode does not match mod id', 'payload' => null], 400);
-            }
-
-            $ver = normalize_version($body['version']) ?: $body['version'];
-            $now = iso8601_utc();
-            $hash_val = compute_remote_sha256($body['download_link']);
-            if ($hash_val === null) return json_response(['error' => 'bad request - can\'t get sha256 from download_link', 'payload' => null], 400);;
-
-            $newver = [
-                'name' => isset($inner['name']) ? $inner['name'] : (isset($body['name']) ? $body['name'] : $modid),
-                'version' => $ver,
-                'download_link' => $body['download_link'],
-                'hash' => $hash_val,
-                'geode' => isset($inner['geode']) ? normalize_geode($inner['geode']) : (isset($body['geode']) ? normalize_geode($body['geode']) : null),
-                'download_count' => 0,
-                'early_load' => !empty($body['early_load']),
-                'requires_patching' => !empty($body['requires_patching']),
-                'api' => !empty($inner['api']) ? (bool)$inner['api'] : !empty($body['api']),
-                'mod_id' => $m['id'],
-                'gd' => isset($inner['gd']) ? normalize_gd($inner['gd']) : (isset($body['gd']) && is_array($body['gd']) ? normalize_gd($body['gd']) : null),
-                'status' => 'accepted',
-                'description' => isset($inner['description']) ? $inner['description'] : (!empty($meta['about']) ? mb_strimwidth($meta['about'], 0, 1000, '...') : null),
-                'created_at' => $now,
-                'updated_at' => $now,
-            ];
-            array_unshift($mods[$i]['versions'], $newver);
-            // refresh mod-level about/changelog from archive if present
-            if (!empty($meta['about'])) $mods[$i]['about'] = $meta['about'];
-            if (!empty($meta['changelog'])) $mods[$i]['changelog'] = $meta['changelog'];
-            $mods[$i]['updated_at'] = iso8601_utc();
-            db_write('mods.json', $mods);            array_unshift($mods[$i]['versions'], $newver);
-            db_write('mods.json', $mods);
-            return json_response(['error' => '', 'payload' => version_for_public($mods[$i]['id'], $newver)], 201);
-            return json_response(['error' => '', 'payload' => $newver], 201);
         }
+        if (!$allowed) return json_response(['error' => 'forbidden', 'payload' => null], 403);
+
+        // extract metadata from .geode (required)
+        $meta = extract_metadata_from_geode($body['download_link']);
+        if ($meta === null || empty($meta['modjson'])) {
+            return json_response(['error' => 'bad request - mod.json not found inside .geode', 'payload' => null], 400);
+        }
+        $inner = $meta['modjson'];
+        if (!empty($inner['id']) && $inner['id'] !== $modid) {
+            return json_response(['error' => 'bad request - mod id inside .geode does not match mod id', 'payload' => null], 400);
+        }
+
+        $ver = normalize_version($body['version']) ?: $body['version'];
+        $now = iso8601_utc();
+        $hash_val = compute_remote_sha256($body['download_link']);
+        if ($hash_val === null) return json_response(['error' => 'bad request - can\'t get sha256 from download_link', 'payload' => null], 400);
+
+        $newver = [
+            'name'              => isset($inner['name']) ? $inner['name'] : (isset($body['name']) ? $body['name'] : $modid),
+            'version'           => $ver,
+            'download_link'     => $body['download_link'],
+            'hash'              => $hash_val,
+            'geode'             => isset($inner['geode']) ? normalize_geode($inner['geode']) : (isset($body['geode']) ? normalize_geode($body['geode']) : null),
+            'download_count'    => 0,
+            'early_load'        => !empty($body['early_load']),
+            'requires_patching' => !empty($body['requires_patching']),
+            'api'               => !empty($inner['api']) ? (bool)$inner['api'] : !empty($body['api']),
+            'mod_id'            => $m['id'],
+            'gd'                => isset($inner['gd']) ? normalize_gd($inner['gd']) : (isset($body['gd']) && is_array($body['gd']) ? normalize_gd($body['gd']) : null),
+            'status'            => 'accepted',
+            'description'       => isset($inner['description']) ? $inner['description'] : (!empty($meta['about']) ? mb_strimwidth($meta['about'], 0, 1000, '...') : null),
+            'created_at'        => $now,
+            'updated_at'        => $now,
+        ];
+
+        array_unshift($mods[$i]['versions'], $newver);
+
+        // refresh mod-level about/changelog from archive if present
+        if (!empty($meta['about'])) $mods[$i]['about'] = $meta['about'];
+        if (!empty($meta['changelog'])) $mods[$i]['changelog'] = $meta['changelog'];
+        $mods[$i]['updated_at'] = iso8601_utc();
+        db_write('mods.json', $mods);
+
+        return json_response(['error' => '', 'payload' => version_for_public($mods[$i]['id'], $newver)], 201);
     }
     json_response(['error' => 'mod not found', 'payload' => null], 404);
 }
+
 function api_mod_versions_get($modid, $version) {
     $mods = db_read('mods.json') ?: [];
     foreach ($mods as $m) {
@@ -1584,102 +1775,104 @@ function api_mod_versions_get($modid, $version) {
 
     json_response(['error' => 'mod not found', 'payload' => null], 404);
 }
+
 function api_mod_versions_update($modid, $version) {
     if (!require_admin()) return;
+
     $body = json_input();
     if (!$body) return json_response(['error' => 'bad request', 'payload' => null], 400);
 
     $mods = db_read('mods.json') ?: [];
     foreach ($mods as $i => $m) {
-        if ($m['id'] === $modid) {
-            foreach ($m['versions'] as $j => $v) {
-                if ($v['version'] === $version) {
-                    // update simple fields
-                    if (isset($body['status'])) $mods[$i]['versions'][$j]['status'] = $body['status'];
-                    if (isset($body['info'])) $mods[$i]['versions'][$j]['info'] = $body['info'];
+        if ($m['id'] !== $modid) continue;
 
-                    // download_link/hash handling: only when download_link provided
-                    if (!empty($body['download_link'])) {
-                        $new_download = trim($body['download_link']);
-                        $mods[$i]['versions'][$j]['download_link'] = $new_download;
-                        $mods[$i]['versions'][$j]['hash'] = compute_remote_sha256($new_download);
-                        // set created_at only if it's a brand-new version — here we are updating, so update updated_at below
-                    }
+        foreach ($m['versions'] as $j => $v) {
+            if ($v['version'] !== $version) continue;
 
-                    // one updated_at assign
-                    $mods[$i]['versions'][$j]['updated_at'] = iso8601_utc();
-                    $mods[$i]['updated_at'] = iso8601_utc();
-                    db_write('mods.json', $mods);
-                    return json_response(['error' => '', 'payload' => $mods[$i]['versions'][$j]], 200);
-                }
+            // update simple fields
+            if (isset($body['status'])) $mods[$i]['versions'][$j]['status'] = $body['status'];
+            if (isset($body['info'])) $mods[$i]['versions'][$j]['info'] = $body['info'];
+
+            // download_link/hash handling: only when download_link provided
+            if (!empty($body['download_link'])) {
+                $new_download = trim($body['download_link']);
+                $mods[$i]['versions'][$j]['download_link'] = $new_download;
+                $mods[$i]['versions'][$j]['hash'] = compute_remote_sha256($new_download);
             }
-            return json_response(['error' => 'version not found', 'payload' => null], 404);
+
+            $mods[$i]['versions'][$j]['updated_at'] = iso8601_utc();
+            $mods[$i]['updated_at'] = iso8601_utc();
+            db_write('mods.json', $mods);
+            return json_response(['error' => '', 'payload' => $mods[$i]['versions'][$j]], 200);
         }
+        return json_response(['error' => 'version not found', 'payload' => null], 404);
     }
     json_response(['error' => 'mod not found', 'payload' => null], 404);
 }
 
 function api_mod_versions_download($modid, $version) {
     $mods = db_read('mods.json') ?: [];
+
     // find local mod/version
     foreach ($mods as $i => $m) {
-        if ($m['id'] === $modid) {
-            foreach ($m['versions'] as $j => $v) {
-                if ($v['version'] === $version) {
-                    // increment counters (use local counters even if we fallback to upstream URL)
-                    $mods[$i]['versions'][$j]['download_count'] = ($mods[$i]['versions'][$j]['download_count'] ?? 0) + 1;
-                    $mods[$i]['download_count'] = ($mods[$i]['download_count'] ?? 0) + 1;
-                    db_write('mods.json', $mods);
+        if ($m['id'] !== $modid) continue;
 
-                    $local_link = !empty($v['download_link']) ? $v['download_link'] : null;
+        foreach ($m['versions'] as $j => $v) {
+            if ($v['version'] !== $version) continue;
 
-                    // if local_link present -> verify reachable and follow redirects; else try upstream
-                    if ($local_link) {
-                        $res = resolve_final_url($local_link);
-                        if (!empty($res['url']) && $res['code'] !== null && $res['code'] >= 200 && $res['code'] < 400) {
-                            header('Location: ' . $res['url'], true, 302);
-                            exit;
-                        }
-                        // local link unreachable — try upstream fallback
-                    }
+            // increment counters (use local counters even if we fallback to upstream URL)
+            $mods[$i]['versions'][$j]['download_count'] = ($mods[$i]['versions'][$j]['download_count'] ?? 0) + 1;
+            $mods[$i]['download_count'] = ($mods[$i]['download_count'] ?? 0) + 1;
+            db_write('mods.json', $mods);
 
-                    // fallback: ask upstream for this mod/version
-                    $up = fetch_upstream_json("/v1/mods/{$modid}/versions/{$version}");
-                    if ($up && isset($up['error']) && $up['error'] === '' && !empty($up['payload'])) {
-                        $uv = $up['payload'];
-                        $up_link = !empty($uv['download_link']) ? $uv['download_link'] : null;
-                        if ($up_link) {
-                            $res2 = resolve_final_url($up_link);
-                            if (!empty($res2['url']) && $res2['code'] !== null && $res2['code'] >= 200 && $res2['code'] < 400) {
-                                header('Location: ' . $res2['url'], true, 302);
-                                exit;
-                            }
-                        }
-                    }
+            $local_link = !empty($v['download_link']) ? $v['download_link'] : null;
 
-                    // if we reach here, try raw local link (may still redirect) or respond error
-                    if ($local_link) {
-                        header('Location: ' . $local_link, true, 302);
+            // if local_link present -> verify reachable and follow redirects; else try upstream
+            if ($local_link) {
+                $res = resolve_final_url($local_link);
+                if (!empty($res['url']) && $res['code'] !== null && $res['code'] >= 200 && $res['code'] < 400) {
+                    header('Location: ' . $res['url'], true, 302);
+                    exit;
+                }
+                // local link unreachable — try upstream fallback
+            }
+
+            // fallback: ask upstream for this mod/version
+            $up = fetch_upstream_json("/v1/mods/{$modid}/versions/{$version}");
+            if ($up && isset($up['error']) && $up['error'] === '' && !empty($up['payload'])) {
+                $uv = $up['payload'];
+                $up_link = !empty($uv['download_link']) ? $uv['download_link'] : null;
+                if ($up_link) {
+                    $res2 = resolve_final_url($up_link);
+                    if (!empty($res2['url']) && $res2['code'] !== null && $res2['code'] >= 200 && $res2['code'] < 400) {
+                        header('Location: ' . $res2['url'], true, 302);
                         exit;
                     }
-
-                    return json_response(['error' => 'version download link not available', 'payload' => null], 502);
                 }
             }
-            return json_response(['error' => 'version not found', 'payload' => null], 404);
+
+            // if we reach here, try raw local link (may still redirect) or respond error
+            if ($local_link) {
+                header('Location: ' . $local_link, true, 302);
+                exit;
+            }
+
+            return json_response(['error' => 'version download link not available', 'payload' => null], 502);
         }
+        return json_response(['error' => 'version not found', 'payload' => null], 404);
     }
 
     if (defined('UPSTREAM_URL') && UPSTREAM_URL) {
         $url = UPSTREAM_URL . '/v1/mods/' . rawurlencode($modid) . "/versions/" . $version . "/download";
 
-        $override = null;
         $hdrs = getallheaders_lower();
-        if (!empty($hdrs['x-upstream-url'])) $override = $hdrs['x-upstream-url'];
-        if (!empty($override)) if (stripos($override, 'http') === 0) $url = $override;
+        if (!empty($hdrs['x-upstream-url']) && stripos($hdrs['x-upstream-url'], 'http') === 0) {
+            $url = $hdrs['x-upstream-url'];
+        }
 
         if (@file_get_contents($url)) {
-            header('Location: '.$url); exit(); 
+            header('Location: ' . $url);
+            exit;
         }
     }
 
@@ -1688,27 +1881,29 @@ function api_mod_versions_download($modid, $version) {
 }
 
 /* ======================= API: stats ======================= */
+
 function api_stats() {
-    $mods = db_read('mods.json') ?: [];
-    $devs = db_read('developers.json') ?: [];
-    $total_mod_count = count($mods);
-    $total_mod_downloads = 0;
-    $total_geode_downloads = 0;
-    foreach ($mods as $m) $total_mod_downloads += ($m['download_count'] ?? 0);
-    json_response(['error' => '', 'payload' => ['total_geode_downloads' => $total_geode_downloads, 'total_mod_count' => $total_mod_count, 'total_mod_downloads' => $total_mod_downloads, 'total_registered_developers' => count($devs)]]);
+    json_response(['error' => '', 'payload' => api_stats_payload()], 200);
 }
 
 /* ======================= UI renderers ======================= */
-function handle_home() { header('Location: /ui'); exit; }
 
-function asAPIReqForm() { return ("
+function handle_home() {
+    header('Location: /ui');
+    exit;
+}
+
+// Wires up any <form> on the page to submit via fetch() against the JSON API,
+// showing an alert on success/failure instead of a full page navigation.
+function asAPIReqForm() {
+    return "
 <script>
 document.querySelector('form').addEventListener('submit', function(e) {
     e.preventDefault();
-    
+
     let a = this.querySelector('button[type=\"submit\"]');
     if (!a) a = this.querySelector('button');
-    
+
     a.parentElement.className += ' disabled placeholder-glow';
     a.parentElement.style.opacity = '0.5';
     a.className += ' disabled placeholder';
@@ -1722,10 +1917,10 @@ document.querySelector('form').addEventListener('submit', function(e) {
     })
     .then(async response => {
         let data;
-        try { data = await response.json(); } 
+        try { data = await response.json(); }
         catch (e) { throw new Error('Invalid JSON'); }
-        
-        if (!response.ok) { 
+
+        if (!response.ok) {
             let errorMsg = data.error || 'Server error (HTTP ' + response.status + ')';
             throw new Error(errorMsg);
         }
@@ -1752,7 +1947,8 @@ document.querySelector('form').addEventListener('submit', function(e) {
     });
 });
 </script>
-"); }
+";
+}
 
 function ui_header($title = 'Main') {
     $user = current_user();
@@ -1810,7 +2006,7 @@ function ui_header($title = 'Main') {
     .card-pre{white-space:pre-wrap;}
   </style>
 </head>
-<body style="padding-top: 80px;;">
+<body style="padding-top: 80px;">
     <nav class="navbar fixed-top navbar-expand-lg border-bottom px-4 bg-black">
         <a class="navbar-brand" href="/ui">Open Geode Index</a>
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#mainNavbar" aria-controls="mainNavbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -1894,9 +2090,9 @@ function render_ui() {
             </form><?=asAPIReqForm()?>
         <?php endif; ?>
     </div>
-  
+
   <div class="col-md-8 mt-1 pt-1">
-    
+
     <div class="input-group mb-3">
         <input type="text" id="searchInput" class="form-control" placeholder="Search..." onkeydown="if(event.key==='Enter') findAndScroll(this.value)">
         <button class="btn btn-primary" onclick="findAndScroll(document.getElementById('searchInput').value)">Find</button>
@@ -1949,12 +2145,11 @@ function render_ui() {
       <?php endforeach; endif; ?>
     </div>
   </div>
-  
+
 </div>
 <?php
     ui_footer();
 }
-
 
 function render_devs() {
     $developers = db_read('developers.json') ?: [];
@@ -1962,7 +2157,6 @@ function render_devs() {
     ui_header('Users - Open Geode Index');
     ?>
     <div class="row px-3" style="
-        /* flex-flow: wrap-reverse; */
         justify-content: space-around;
         align-items: center;
         align-items: stretch;
@@ -2018,15 +2212,21 @@ function render_install() {
 function render_mod_page($id) {
     $mods = db_read('mods.json') ?: [];
     $mod = null;
-    foreach ($mods as $m) if ($m['id'] === $id) { $mod = $m; break; }
-    $user = current_user(); 
+    foreach ($mods as $m) {
+        if ($m['id'] === $id) { $mod = $m; break; }
+    }
+    $user = current_user();
     $is_admin = is_admin();
 
     ui_header($id . ' - Open Geode Index');
 
-    if (!$mod) { http_response_code(404); echo "<script>window.location.replace('https://geode-sdk.org/mods/".$id."');</script>"; exit; }
+    if (!$mod) {
+        http_response_code(404);
+        echo "<script>window.location.replace('https://geode-sdk.org/mods/" . $id . "');</script>";
+        exit;
+    }
 
-    if ((empty($mod['about']) or !empty($mod['prefer_github_info'])) && !empty($mod['repo'])) {
+    if ((empty($mod['about']) || !empty($mod['prefer_github_info'])) && !empty($mod['repo'])) {
         $text = fetch_github_raw_text($mod['repo'], 'README.md');
         if ($text === null) $text = fetch_github_raw_text($mod['repo'], 'about.md');
         if ($text !== null) $mod['about'] = $text;
@@ -2045,7 +2245,7 @@ function render_mod_page($id) {
 
     <ul class="nav nav-underline mx-1" style="justify-content: center;">
         <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#about">About</a></li>
-        <li class="nav-item"><a class="nav-link <?php if(empty($mod['changelog'])): ?>disabled<?php endif; ?>" data-toggle="tab" href="#changelog">Changelog</a></li>
+        <li class="nav-item"><a class="nav-link <?php if (empty($mod['changelog'])): ?>disabled<?php endif; ?>" data-toggle="tab" href="#changelog">Changelog</a></li>
     </ul>
 
     <div class="tab-content mt-1">
@@ -2062,7 +2262,7 @@ function render_mod_page($id) {
   </div>
 
   <div class="col-md-4">
-  
+
 	<hr>
 
     <h4>Versions</h4>
@@ -2084,11 +2284,11 @@ function render_mod_page($id) {
         <div class="card <?php if ($d['username'] === $user): ?>bg-gradient<?php endif; ?>">
             <div style="display: flex;">
                 <img id="ic-<?=htmlspecialchars($d['username'])?>" src="https://github.com/<?=htmlspecialchars($d['username'])?>.png" class="rounded-start" style="height: 70px;" alt="<?=htmlspecialchars($d['username'])?>">
-                <img id="ic-<?=htmlspecialchars($d['display_name'])?>" class="rounded-start" style="height: 70px; display: none;" 
-                    src="https://github.com/<?=htmlspecialchars($d['display_name'])?>.png" 
-                    alt="<?=htmlspecialchars($d['display_name'])?>" 
+                <img id="ic-<?=htmlspecialchars($d['display_name'])?>" class="rounded-start" style="height: 70px; display: none;"
+                    src="https://github.com/<?=htmlspecialchars($d['display_name'])?>.png"
+                    alt="<?=htmlspecialchars($d['display_name'])?>"
                     onload="
-                        this.style.display='block'; 
+                        this.style.display='block';
                         document.getElementById('ic-<?=htmlspecialchars($d['username'])?>').style.display='none';
                         document.getElementById('a-<?=htmlspecialchars($d['display_name'])?>').href='https://github.com/<?=htmlspecialchars($d['display_name'])?>';
                     "
@@ -2101,7 +2301,7 @@ function render_mod_page($id) {
                             </a>
                         </h5>
                         <p class="card-text text-body-secondary">
-                            <?=htmlspecialchars($d['username'])?> 
+                            <?=htmlspecialchars($d['username'])?>
                             <?=!empty($d['is_owner']) ? '<a href="https://github.com/'.htmlspecialchars($d['username']).'" class="link-info link-underline-opacity-50">[puplisher]</a>' : ''?>
                         </p>
                     </div>
@@ -2110,13 +2310,15 @@ function render_mod_page($id) {
         </div>
       <?php endforeach; ?>
     </div>
-	
+
 	<hr>
-	
+
     <?php
     $owner_allowed = is_admin();
     if (!$owner_allowed && $user) {
-        foreach ($mod['developers'] as $dev) if (!empty($dev['username']) && $dev['username'] === $user && !empty($dev['is_owner'])) { $owner_allowed = true; break; }
+        foreach ($mod['developers'] as $dev) {
+            if (!empty($dev['username']) && $dev['username'] === $user && !empty($dev['is_owner'])) { $owner_allowed = true; break; }
+        }
     }
     $owner_display = '';
     foreach ($mod['developers'] as $d) {
@@ -2155,7 +2357,7 @@ function render_mod_page($id) {
     <?php if ($owner_allowed): ?>
       <div class="card mb-3">
         <div class="card-body">
-          <form method="post" action="/v1/mods/<?=urlencode($mod['id'])?>" 
+          <form method="post" action="/v1/mods/<?=urlencode($mod['id'])?>"
       onsubmit="event.preventDefault();if(!confirm('Delete <?=htmlspecialchars($mod['id'])?>?\nAction can\'t be undone...')) return;fetch(this.action, {method:'POST', body:new FormData(this)}).then(() => {history.back(); setTimeout(()=>location.reload(), 200)});">
             <input type="hidden" name="_method" value="DELETE">
             <button type="submit" class="w-100 btn btn-sm btn-danger">Delete mod</button>
@@ -2181,7 +2383,7 @@ function render_mod_page($id) {
     <?php endif; ?>
 
   </div>
-			
+
   <?php if (!empty($mod['repository'])): ?><span class="w-100 text-center">Repository: <a href="<?=htmlspecialchars($mod['repository'])?>" target="_blank"><?=htmlspecialchars($mod['repository'])?></a></span><?php endif; ?>
 
 </div>
@@ -2191,6 +2393,7 @@ function render_mod_page($id) {
 
 function render_admin_page() {
     if (!is_admin()) { http_response_code(403); echo "<h1>Forbidden</h1><p>Admin only</p>"; exit; }
+
     $tab = $_GET['tab'] ?? 'mods';
     ui_header('Admin - Open Geode Index');
     $mods = db_read('mods.json') ?: [];
@@ -2331,7 +2534,7 @@ function render_admin_page() {
     ui_footer();
 }
 
-/* helper for admin stats */
+// Shared stats payload used by both the /v1/stats API and the admin/home UI pages.
 function api_stats_payload() {
     $mods = db_read('mods.json') ?: [];
     $devs = db_read('developers.json') ?: [];
@@ -2339,85 +2542,142 @@ function api_stats_payload() {
     $total_mod_downloads = 0;
     $total_geode_downloads = 0;
     foreach ($mods as $m) $total_mod_downloads += ($m['download_count'] ?? 0);
-    return ['total_geode_downloads' => $total_geode_downloads, 'total_mod_count' => $total_mod_count, 'total_mod_downloads' => $total_mod_downloads, 'total_registered_developers' => count($devs)];
+    return [
+        'total_geode_downloads'       => $total_geode_downloads,
+        'total_mod_count'             => $total_mod_count,
+        'total_mod_downloads'         => $total_mod_downloads,
+        'total_registered_developers' => count($devs),
+    ];
 }
 
 /* ======================= Admin UI form handler ======================= */
+
 function handle_admin_form() {
     if (!is_admin()) { http_response_code(403); echo "<h1>Forbidden</h1><p>Admin only</p>"; exit; }
+
     $action = $_POST['action'] ?? '';
+
     if ($action === 'toggle_featured') {
-        $modid = $_POST['modid'] ?? null; $featured = !empty($_POST['featured']) ? true : false;
+        $modid = $_POST['modid'] ?? null;
+        $featured = !empty($_POST['featured']);
         $mods = db_read('mods.json') ?: [];
         foreach ($mods as $i => $m) {
-            if ($m['id'] === $modid) { $mods[$i]['featured'] = $featured; $mods[$i]['updated_at'] = iso8601_utc(); db_write('mods.json', $mods); $_SESSION['flash'] = 'Mod updated'; header('Location: /ui/admin?tab=mods'); exit; }
+            if ($m['id'] === $modid) {
+                $mods[$i]['featured'] = $featured;
+                $mods[$i]['updated_at'] = iso8601_utc();
+                db_write('mods.json', $mods);
+                $_SESSION['flash'] = 'Mod updated';
+                header('Location: /ui/admin?tab=mods');
+                exit;
+            }
         }
-        $_SESSION['flash'] = 'Mod not found'; header('Location: /ui/admin?tab=mods'); exit;
+        $_SESSION['flash'] = 'Mod not found';
+        header('Location: /ui/admin?tab=mods');
+        exit;
     }
+
     if ($action === 'create_loader_version') {
-        $tag = $_POST['tag'] ?? null; $commit_hash = $_POST['commit_hash'] ?? null; $gd = $_POST['gd'] ?? null;
-        if (!$tag || !$commit_hash || !$gd) { $_SESSION['flash'] = 'Missing fields'; header('Location:/ui/admin?tab=loader'); exit; }
+        $tag = $_POST['tag'] ?? null;
+        $commit_hash = $_POST['commit_hash'] ?? null;
+        $gd = $_POST['gd'] ?? null;
+        if (!$tag || !$commit_hash || !$gd) {
+            $_SESSION['flash'] = 'Missing fields';
+            header('Location:/ui/admin?tab=loader');
+            exit;
+        }
+
         $gd_parsed = json_decode($gd, true);
         if ($gd_parsed === null) {
             $parts = array_map('trim', explode(',', $gd));
             $gd_parsed = [];
             foreach ($parts as $p) {
-                if (strpos($p, ':') !== false) { list($k, $v) = array_map('trim', explode(':', $p, 2)); if ($k && $v) $gd_parsed[$k] = $v; }
+                if (strpos($p, ':') !== false) {
+                    list($k, $v) = array_map('trim', explode(':', $p, 2));
+                    if ($k && $v) $gd_parsed[$k] = $v;
+                }
             }
         }
-        $body = ['tag' => $tag, 'commit_hash' => $commit_hash, 'gd' => $gd_parsed];
-        // call API create
-        $_POST = $body;
+
+        $_POST = ['tag' => $tag, 'commit_hash' => $commit_hash, 'gd' => $gd_parsed];
         return api_loader_versions_create();
     }
+
     if ($action === 'update_developer') {
-        $id = intval($_POST['developer_id'] ?? 0); $admin = isset($_POST['admin']) ? (bool)$_POST['admin'] : null; $verified = isset($_POST['verified']) ? (bool)$_POST['verified'] : null;
+        $id = intval($_POST['developer_id'] ?? 0);
+        $admin = isset($_POST['admin']) ? (bool)$_POST['admin'] : null;
+        $verified = isset($_POST['verified']) ? (bool)$_POST['verified'] : null;
+
         $body = [];
         if ($admin !== null) $body['admin'] = $admin;
         if ($verified !== null) $body['verified'] = $verified;
         $_POST = $body;
         return api_developers_update($id);
     }
+
     if ($action === 'create_tag') {
         $name = trim($_POST['tag_name'] ?? '');
-        if ($name === '') { $_SESSION['flash'] = 'Tag name required'; header('Location:/ui/admin?tab=tags'); exit; }
+        if ($name === '') {
+            $_SESSION['flash'] = 'Tag name required';
+            header('Location:/ui/admin?tab=tags');
+            exit;
+        }
+
         $tags = db_read('tags.json') ?: [];
         $tags[] = ['id' => time(), 'name' => $name, 'display_name' => $name, 'is_readonly' => false];
         db_write('tags.json', $tags);
-        $_SESSION['flash'] = 'Tag created'; header('Location:/ui/admin?tab=tags'); exit;
+        $_SESSION['flash'] = 'Tag created';
+        header('Location:/ui/admin?tab=tags');
+        exit;
     }
+
     if ($action === 'create_deprecation') {
-        $modid = $_POST['modid'] ?? ''; $by = isset($_POST['by']) ? array_map('trim', explode(',', $_POST['by'])) : []; $reason = $_POST['reason'] ?? '';
+        $modid = $_POST['modid'] ?? '';
+        $by = isset($_POST['by']) ? array_map('trim', explode(',', $_POST['by'])) : [];
+        $reason = $_POST['reason'] ?? '';
         $_POST = ['by' => $by, 'reason' => $reason];
         return api_deprecations_create($modid);
     }
+
     if ($action === 'delete_deprecation') {
-        $modid = $_POST['modid'] ?? ''; $depid = intval($_POST['depid'] ?? 0);
+        $modid = $_POST['modid'] ?? '';
+        $depid = intval($_POST['depid'] ?? 0);
         return api_deprecations_delete($modid, $depid);
     }
+
     if ($action === 'revoke_token') {
         $token = $_POST['token'] ?? '';
         $tokens = db_read('tokens.json') ?: [];
-        if (isset($tokens[$token])) { unset($tokens[$token]); db_write('tokens.json', $tokens); $_SESSION['flash'] = 'Token revoked'; } else $_SESSION['flash'] = 'Token not found';
-        header('Location: /ui/admin?tab=tokens'); exit;
+        if (isset($tokens[$token])) {
+            unset($tokens[$token]);
+            db_write('tokens.json', $tokens);
+            $_SESSION['flash'] = 'Token revoked';
+        } else {
+            $_SESSION['flash'] = 'Token not found';
+        }
+        header('Location: /ui/admin?tab=tokens');
+        exit;
     }
+
     $_SESSION['flash'] = 'Unknown admin action';
-    header('Location: /ui/admin'); exit;
+    header('Location: /ui/admin');
+    exit;
 }
 
 /* ======================= WEB auth handlers (UI flows) ======================= */
+
 function handle_login() {
     if (!defined('CLIENT_ID') || CLIENT_ID === '') {
         echo "<h1>GitHub OAuth not configured</h1><p>Please set CLIENT_ID and CLIENT_SECRET in index.php</p>";
         exit;
     }
+
     $state = bin2hex(random_bytes(12));
     $_SESSION['oauth_state'] = $state;
     $params = http_build_query([
-        'client_id' => CLIENT_ID,
+        'client_id'    => CLIENT_ID,
         'redirect_uri' => CALLBACK_URL ?: current_url_base() . '/callback',
-        'scope' => 'read:user',
-        'state' => $state,
+        'scope'        => 'read:user',
+        'state'        => $state,
     ]);
     header("Location: https://github.com/login/oauth/authorize?$params");
     exit;
@@ -2430,13 +2690,19 @@ function handle_callback() {
         header('Location: /ui');
         exit;
     }
+
     if (!isset($_GET['code']) || !isset($_GET['state'])) { echo "Missing code or state"; exit; }
-    $code = $_GET['code']; $state = $_GET['state'];
+
+    $code = $_GET['code'];
+    $state = $_GET['state'];
     if (!isset($_SESSION['oauth_state']) || $_SESSION['oauth_state'] !== $state) { echo "Invalid state"; exit; }
+
     $token = github_exchange_code($code);
     if (!$token) { echo "Failed to obtain access token"; exit; }
+
     $user = github_get_user($token);
     if (!$user || !isset($user['login'])) { echo "Failed to fetch GitHub user"; exit; }
+
     $_SESSION['github_user'] = $user['login'];
     $_SESSION['github_token'] = $token;
     ensure_developer_record($user['login'], $user['name'] ?? $user['login']);
@@ -2452,4 +2718,3 @@ function handle_logout() {
 }
 
 /* ======================= END OF FILE ======================= */
-?>

@@ -2,7 +2,7 @@
 const CLIENT_ID = 'meows';
 const CLIENT_SECRET = 'meows';
 const CALLBACK_URL = 'https://open-geode-index.bccst.ru/callback';
-$ADMIN_USERS = ['lil2kki'];
+$ADMIN_USERS = ['lil2kki', 'gwddos'];
 
 const UPSTREAM_URL = 'https://api.geode-sdk.org';
 
