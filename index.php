@@ -2288,7 +2288,7 @@ function render_mod_page($id) {
     ?>
 <div class="row">
   <div class="col-md-8">
-	<div class="mb-1" style="display: flex;">
+	<div class="" style="display: flex;">
 		<?php if (!empty($mod['logo_url'])): ?><img src="<?=htmlspecialchars($mod['logo_url'])?>" alt="logo" style="max-height:95px;" onerror="this.style.display='none'"><?php endif; ?>
 		<div class="ms-2">
 			<h2 class="m-0"><?=htmlspecialchars($mod['versions'][0]['name'])?></h2>
@@ -2335,7 +2335,7 @@ function render_mod_page($id) {
     <h5>Developers</h5>
     <div>
       <?php foreach ($mod['developers'] as $d): ?>
-        <div class="card <?php if ($d['username'] === $user): ?>bg-gradient<?php endif; ?>">
+        <div class="mb-2 card <?php if ($d['username'] === $user): ?>bg-gradient<?php endif; ?>">
             <div style="display: flex;">
                 <img id="ic-<?=htmlspecialchars($d['username'])?>" src="https://github.com/<?=htmlspecialchars($d['username'])?>.png" class="rounded-start" style="height: 70px;" alt="<?=htmlspecialchars($d['username'])?>">
                 <img id="ic-<?=htmlspecialchars($d['display_name'])?>" class="rounded-start" style="height: 70px; display: none;"
