@@ -2288,7 +2288,7 @@ function render_mod_page($id) {
     ?>
 <div class="row">
   <div class="col-md-8">
-	<div class="" style="display: flex;">
+	<div class="mb-1" style="display: flex;">
 		<?php if (!empty($mod['logo_url'])): ?><img src="<?=htmlspecialchars($mod['logo_url'])?>" alt="logo" style="max-height:95px;" onerror="this.style.display='none'"><?php endif; ?>
 		<div class="ms-2">
 			<h2 class="m-0"><?=htmlspecialchars($mod['versions'][0]['name'])?></h2>
