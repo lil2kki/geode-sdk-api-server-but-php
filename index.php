@@ -1993,15 +1993,18 @@ document.querySelector($selector_json).addEventListener('submit', function(e) {
 ";
 }
 
-function ui_header($title = 'Main') {
+function ui_header(
+    $title = 'Main',
+    $description = SITE_DESCRIPTION,
+    $icon = ICON_URL
+) {
     $user = current_user();
     $is_admin = is_admin();
 
     // Meta values
     $site_title = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
-    $description = htmlspecialchars(SITE_DESCRIPTION, ENT_QUOTES, 'UTF-8');
+    $description = htmlspecialchars($description, ENT_QUOTES, 'UTF-8');
     $current_url = htmlspecialchars(current_url_base() . $_SERVER['REQUEST_URI'], ENT_QUOTES, 'UTF-8');
-    $icon = ICON_URL;
     ?>
 <!doctype html>
 <html data-bs-theme="dark" lang="en">
@@ -2019,7 +2022,7 @@ function ui_header($title = 'Main') {
   <meta property="og:type" content="website">
   <meta property="og:url" content="<?php echo $current_url; ?>">
 
-  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:card" content="app">
   <meta name="twitter:title" content="<?php echo $site_title; ?>">
   <meta name="twitter:description" content="<?php echo $description; ?>">
   <meta name="twitter:image" content="<?php echo htmlspecialchars($icon, ENT_QUOTES, 'UTF-8'); ?>">
@@ -2197,7 +2200,7 @@ function render_ui() {
 function render_devs() {
     $developers = db_read('developers.json') ?: [];
     $user = current_user();
-    ui_header('Users - Open Geode Index');
+    ui_header('Users - Open Geode Index', "List of developers that logined once.");
     ?>
     <div class="row px-3" style="
         justify-content: space-around;
@@ -2230,7 +2233,7 @@ function render_devs() {
 function render_install() {
     $developers = db_read('developers.json') ?: [];
     $user = current_user();
-    ui_header('Installing Open Geode Index...');
+    ui_header('Installing Open Geode Index...', "Info about installing our proxy mod for Geode Loader!");
     ?>
 <div class="row">
     <div class="col-md-6 fs-5">
@@ -2261,7 +2264,7 @@ function render_mod_page($id) {
     $user = current_user();
     $is_admin = is_admin();
 
-    ui_header($id . ' - Open Geode Index');
+    ui_header(htmlspecialchars($mod['versions'][0]['name']) . ' on Open Geode Index', $mod['versions'][0]['description'], htmlspecialchars($mod['logo_url']));
 
     if (!$mod) {
         http_response_code(404);
