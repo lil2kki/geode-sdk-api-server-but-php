@@ -6,9 +6,9 @@ define('SESSION_COOKIE', 'ogi_session');
 define('ACCESS_TOKEN_TTL', 60 * 60 * 24 * 7);
 define('REFRESH_TOKEN_TTL', 60 * 60 * 24 * 30);
 
-@ini_set('display_errors', '0');
-@ini_set('display_startup_errors', '0');
-error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
+@ini_set('display_errors', '1');
+@ini_set('display_startup_errors', '1');
+//error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 
 ob_start();
 
@@ -146,7 +146,7 @@ function route($method, $uri) {
 /* ======================= UTILITIES ======================= */
 
 function md($a = 'a', $line = false) {
-    include 'Parsedown.php';
+    if (!class_exists('Parsedown')) include 'Parsedown.php';
     return $line
         ? preg_replace('/^#+\s*/m', '', Parsedown::instance()->line($a))
         : Parsedown::instance()->text($a);
@@ -2110,7 +2110,7 @@ function render_ui() {
         </p>
         <dl class="row px-2 mb-1">
             <dt class="col-10 border-start my-1">Total mod count</dt><dd class="col-2 text-end border-end btn btn-link rounded-0 btn-sm fs-5 py-0"><?=htmlspecialchars($stats['total_mod_count'] ?? 0)?></dd>
-            <dt class="col-10 border-start my-1">Total mod downloads</dt><dd class="col-2 text-end border-end btn btn-link rounded-0 btn-sm fs-5 py-0"><?=htmlspecialchars($stats['total_mod_downloads'] ?? 0)?></dd>
+            <dt class="d-none col-10 border-start my-1">Total mod downloads</dt><dd class="d-none col-2 text-end border-end btn btn-link rounded-0 btn-sm fs-5 py-0"><?=htmlspecialchars($stats['total_mod_downloads'] ?? 0)?></dd>
             <dt class="col-10 border-start my-1">Total registered users (devs)</dt><dd class="col-2 text-end border-end btn btn-link rounded-0 btn-sm fs-5 py-0"><?=htmlspecialchars($stats['total_registered_developers'] ?? 0)?></dd>
         </dl>
         <p><a class="btn btn-primary w-100 py-1" href="https://github.com/lil2kki/Open-Geode-Index#how-to-install" target="_blank">Download proxy mod for Geode Loader!</a></p>
