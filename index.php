@@ -2097,119 +2097,738 @@ function ui_footer() {
 }
 
 function render_ui() {
-    $mods = db_read('mods.json') ?: [];
     $stats = api_stats_payload();
     $user = current_user();
     ui_header('Open Geode Index');
     ?>
+    <style>
+        .highlight-search { background: yellow !important; color: black !important; }
+        .skeleton-card {
+            height: 120px;
+            border-radius: 8px;
+            animation: pulse 1.5s ease-in-out infinite;
+            background: var(--bs-secondary-bg);
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 0.8; }
+        }
+        .tag-btn {
+            font-size: 0.7rem;
+            padding: 2px 10px;
+            border-radius: 12px;
+            border: 1px solid var(--bs-border-color);
+            background: transparent;
+            color: var(--bs-secondary-color);
+            cursor: pointer;
+            transition: all 0.15s;
+            text-transform: capitalize;
+        }
+        .tag-btn:hover {
+            background: var(--bs-secondary-bg);
+        }
+        .tag-btn.active {
+            background: var(--bs-primary);
+            color: #fff;
+            border-color: var(--bs-primary);
+        }
+        .filter-section {
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            padding: 12px 16px;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--bs-secondary-color);
+        }
+        .pagination-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 16px;
+        }
+        .mod-card {
+            position: relative;
+        }
+        .mod-card .downloads-badge {
+            position: absolute;
+            bottom: 3px;
+            right: 5px;
+            font-size: 0.8rem;
+            color: var(--bs-secondary-color);
+        }
+        .mod-card .like-btn {
+            position: absolute;
+            right: 3px;
+            top: 5px;
+        }
+        .mod-card .tags-row {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+            margin-top: 2px;
+            text-transform: capitalize;
+        }
+        .mod-card .tags-row .tag-badge {
+            font-size: 0.6rem;
+            padding: 1px 8px;
+            border-radius: 10px;
+            background: var(--bs-secondary-bg);
+            color: var(--bs-secondary-color);
+        }
+        .mod-card .mod-title-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+    </style>
+
+    <div class="row">
+        <div class="col-md-4 my-1 py-1 border-end d-flex flex-column border-2">
+            <h3>About project</h3>
+            <hr class="my-1 mb-3">
+            <p>Welcome to the ALTERNATIVE catalog of mods for Geode, here you can find forbidden or lost mods that are kindly hidden from you. <i>Enjoy the underground~</i></p>
+            <p style="display: flex;justify-content: space-evenly;">
+                <a class="link-primary link-offset-2 link-underline-opacity-25 link-underline-opacity-100-hover" href="https://discord.gg/kXjQ8QEWNU" target="_blank">Discord</a>
+                <a class="link-info link-offset-2 link-underline-opacity-25 link-underline-opacity-100-hover" href="https://t.me/lil2kki_ch" target="_blank">Telegram</a>
+                <a class="link-body-emphasis link-offset-2 link-underline-opacity-25 link-underline-opacity-100-hover" href="https://github.com/lil2kki/Open-Geode-Index" target="_blank">GitHub</a>
+            </p>
+            <dl class="row px-2 mb-1">
+                <dt class="col-10 border-start my-1">Total mod count</dt>
+                <dd class="col-2 text-end border-end btn btn-link rounded-0 btn-sm fs-5 py-0" id="stat-total-mods"><?=htmlspecialchars($stats['total_mod_count'] ?? 0)?></dd>
+                <dt class="col-10 border-start my-1">Total registered users (devs)</dt>
+                <dd class="col-2 text-end border-end btn btn-link rounded-0 btn-sm fs-5 py-0"><?=htmlspecialchars($stats['total_registered_developers'] ?? 0)?></dd>
+            </dl>
+            <p><a class="btn btn-primary w-100 py-1" href="https://github.com/lil2kki/Open-Geode-Index#how-to-install" target="_blank">Download proxy mod for Geode Loader!</a></p>
+            <h3>Submit a mod</h3>
+            <hr class="my-1 mb-3">
+            <?php if (!$user): ?>
+                <div class="alert alert-warning">Please <a href="/login">sign in with GitHub</a> to submit mods.</div>
+            <?php else: ?>
+                <p class="text-muted">You can post anything you want but malware, pls provide us valid GitHub Repository cuz logo loading form it (user/repo/HEAD/logo.png)<br><br>You also can upload not your mods, but it would be sweet if you go to mod page and change developer displayname on real one instead you.<br><br>If you are developer and ownership of your repository was taken pls <a target="_blank" href="https://github.com/lil2kki/Open-Geode-Index/issues/new">send report here</a> so i give you access.</p>
+                <form method="post" action="/v1/mods" class="h-100">
+                    <div class="form-group">
+                        <label for="repo">Repository (user/repo)</label>
+                        <input id="repo" name="repo" class="form-control" placeholder="lil2kki/mod" required>
+                    </div>
+                    <div class="form-group my-2">
+                        <label for="download_link">Download link (.geode)</label>
+                        <input id="download_link" name="download_link" class="form-control" placeholder="https://github.com/.../releases/download/vX.Y/file.geode" required>
+                    </div>
+                    <button class="w-100 btn btn-primary">Submit</button>
+                </form>
+                <?=asAPIReqForm()?>
+            <?php endif; ?>
+        </div>
+
+        <div class="col-md-8 mt-1 pt-1">
+            <div class="filter-section">
+                <div class="row g-2">
+                    <div class="col-lg-4 col-xxl-7">
+                        <input type="text" id="mod-search" class="form-control form-control-sm" placeholder="Search..." autocomplete="off">
+                    </div>
+                    <div class="col-lg-4 col-xxl-3">
+                        <select id="mod-sort" class="form-select form-select-sm">
+                            <option value="downloads">Sort: Downloads</option>
+                            <option value="recently_updated">Sort: Recently updated</option>
+                            <option value="recently_published">Sort: Recently published</option>
+                            <option value="name">Sort: IDs A-Z</option>
+                            <option value="name_reverse">Sort: IDs Z-A</option>
+                            <option value="oldest">Sort: Oldest</option>
+                        </select>
+                    </div>
+                    <div class="col-lg-2 col-xxl-1">
+                        <select id="mod-perpage" class="form-select form-select-sm">
+                            <option value="8" selected>8</option>
+                            <option value="12">12</option>
+                            <option value="24">24</option>
+                            <option value="48">48</option>
+                            <option value="96">96</option>
+                        </select>
+                    </div>
+                    <div class="col-lg-2 col-xxl-1">
+                        <button id="mod-apply-filters" class="btn btn-primary btn-sm w-100">Apply</button>
+                    </div>
+                </div>
+                <div class="row mt-2">
+                    <div class="col-12">
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <div id="mod-tags-filter" class="d-flex flex-wrap gap-1" style="justify-content: center;">
+                                <span class="text-secondary small">Loading tags...</span>
+                            </div>
+                            <button id="mod-clear-tags" class="d-none">Clear.</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="mods-container">
+                <div class="row p-2" style="justify-content:space-around;align-items:stretch;display:flex;" id="mods-grid">
+                    <?php for ($i = 0; $i < 8; $i++): ?>
+                        <div class="skeleton-card" style="width:100%;margin:4px;"></div>
+                    <?php endfor; ?>
+                </div>
+                <div class="pagination-bar">
+                    <span class="page-info text-secondary" id="mod-page-info">Loading...</span>
+                    <div>
+                        <button id="mod-prev-page" class="btn btn-sm btn-outline-secondary" disabled>< Prev</button>
+                        <button id="mod-next-page" class="btn btn-sm btn-outline-secondary" disabled>Next ></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        const state = {
+            query: '',
+            tags: [],
+            sort: 'downloads',
+            perPage: 8,
+            page: 1,
+            total: 0,
+            data: [],
+            loading: false,
+            availableTags: [],
+        };
+
+        const grid = document.getElementById('mods-grid');
+        const searchInput = document.getElementById('mod-search');
+        const sortSelect = document.getElementById('mod-sort');
+        const perPageSelect = document.getElementById('mod-perpage');
+        const applyBtn = document.getElementById('mod-apply-filters');
+        const prevBtn = document.getElementById('mod-prev-page');
+        const nextBtn = document.getElementById('mod-next-page');
+        const pageInfo = document.getElementById('mod-page-info');
+        const tagsContainer = document.getElementById('mod-tags-filter');
+        const clearTagsBtn = document.getElementById('mod-clear-tags');
+        const statTotal = document.getElementById('stat-total-mods');
+
+        function esc(str) {
+            if (!str) return '';
+            const d = document.createElement('div');
+            d.textContent = str;
+            return d.innerHTML;
+        }
+
+        function strip(html) {
+            if (!html) return '';
+            const d = document.createElement('div');
+            d.innerHTML = html;
+            return d.textContent || '';
+        }
+
+        function buildUrl() {
+            const p = new URLSearchParams();
+            if (state.query) p.set('query', state.query);
+            if (state.tags.length) p.set('tags', state.tags.join(','));
+            if (state.sort) p.set('sort', state.sort);
+            p.set('per_page', state.perPage);
+            p.set('page', state.page);
+            return '/v1/mods?' + p.toString();
+        }
+
+        function renderSkeletons() {
+            grid.innerHTML = Array.from({ length: 8 }, () => 
+                `<div class="skeleton-card" style="width:100%;margin:4px;"></div>`
+            ).join('');
+        }
+
+        function renderMods(mods) {
+            if (!mods || mods.length === 0) {
+                grid.innerHTML = `<div class="col-12 empty-state"><p>No mods found.</p></div>`;
+                return;
+            }
+
+            let html = '';
+            for (const m of mods) {
+                const name = m.versions?.[0]?.name || m.id || 'Unnamed';
+                const desc = m.versions?.[0]?.description || m.about || '';
+                const logo = m.logo_url || '';
+                const downloads = m.download_count ?? 0;
+                const tags = (m.tags || []).slice(0, 5);
+                const modId = m.id || '';
+                const identifier = modId;
+
+                html += `
+                    <a class="btn btn-outline-secondary card h-100 p-2 mt-2 mod-card" href="/ui/mod/${encodeURIComponent(modId)}" style="display:flex;text-align:start;text-decoration:none;width:100%;position:relative;">
+                        <div style="display:flex;text-align:start;width:100%;">
+                            <div style="width:72px;display:flex;justify-content:center;">
+                                <img src="${esc(logo)}" alt="Mod logo..." style="height:72px;" onerror="this.style.opacity='0.5';this.style.backdropFilter='brightness(0.5)';this.style.borderStyle='outset';this.style.borderWidth='3px 3px';">
+                            </div>
+                            <div class="ms-2" style="display:flex;flex-direction:column;justify-content:space-between;flex:1;min-width:0;">
+                                <div class="mod-title-row" style="max-height: 22px;">
+                                    <h3 class="m-0 p-0" style="max-height:28px;font-size:1.5rem;">${esc(name)}</h3>
+                                    <div class="tags-row">
+                                        ${tags.map(t => `<span class="tag-badge">${esc(t)}</span>`).join('')}
+                                    </div>
+                                </div>
+                                <p class="m-0 p-0 text-body-tertiary" style="font-size:0.8rem;">${esc(modId)}</p>
+                                <p class="m-0 pb-1 text-muted" style="font-size:0.85rem;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
+                                    ${desc ? esc(strip(desc)) : ''}
+                                </p>
+                            </div>
+                        </div>
+                        <span class="downloads-badge"><i class="bi bi-download"></i> ${downloads}</span>
+                        <span class="like-btn">
+                            <span class="likebtn-wrapper" data-theme="black" data-ef_voting="push" data-show_like_label="false" data-popup_style="dark" data-share_size="small" data-loader_show="true" data-identifier="${esc(identifier)}"></span>
+                        </span>
+                    </a>
+                `;
+            }
+            grid.innerHTML = html;
+
+            // Re-init LikeBtn for new elements
+            if (window.LikeBtn) {
+                LikeBtn.init();
+            } else {
+                // Load LikeBtn if not loaded
+                if (!document.getElementById('likebtn_wjs')) {
+                    const s = document.createElement('script');
+                    s.id = 'likebtn_wjs';
+                    s.async = true;
+                    s.src = '//w.likebtn.com/js/w/widget.js';
+                    document.body.appendChild(s);
+                }
+            }
+        }
+
+        function updatePagination() {
+            const totalPages = Math.ceil(state.total / state.perPage) || 1;
+            pageInfo.textContent = `Showing ${state.data.length} of ${state.total} mods · Page ${state.page} of ${totalPages}`;
+            prevBtn.disabled = state.page <= 1 || state.total === 0;
+            nextBtn.disabled = state.page >= totalPages || state.total === 0;
+            if (statTotal) statTotal.textContent = state.total;
+        }
+
+        async function fetchAvailableTags() {
+            try {
+                const r = await fetch('/v1/detailed-tags');
+                if (!r.ok) return;
+                const d = await r.json();
+                if (d.error) return;
+                state.availableTags = d.payload || [];
+                renderTagButtons();
+            } catch (e) {
+                tagsContainer.innerHTML = '<span class="alert alert-danger text-center">Tags unavailable</span>';
+            }
+        }
+
+        function renderTagButtons() {
+            if (!state.availableTags.length) {
+                tagsContainer.innerHTML = '<span class="alert alert-danger text-center">No tags</span>';
+                return;
+            }
+            let html = '';
+            for (const t of state.availableTags) {
+                const name = typeof t === 'string' ? t : (t.name || t.display_name || '');
+                if (!name) continue;
+                const active = state.tags.includes(name) ? 'active' : '';
+                html += `<button class="tag-btn ${active}" data-tag="${esc(name)}">${esc(name)}</button>`;
+            }
+            tagsContainer.innerHTML = html;
+            clearTagsBtn.style.display = state.tags.length ? 'inline-block' : 'none';
+
+            tagsContainer.querySelectorAll('.tag-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const tag = this.dataset.tag;
+                    const idx = state.tags.indexOf(tag);
+                    if (idx >= 0) state.tags.splice(idx, 1);
+                    else state.tags.push(tag);
+                    state.page = 1;
+                    updateUrl();
+                    fetchMods();
+                });
+            });
+        }
+
+        async function fetchMods() {
+            if (state.loading) return;
+            state.loading = true;
+            renderSkeletons();
+
+            try {
+                const url = buildUrl();
+                const resp = await fetch(url);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
+                if (data.error) throw new Error(data.error);
+
+                state.total = data.payload?.count ?? 0;
+                state.data = data.payload?.data || [];
+                renderMods(state.data);
+                updatePagination();
+                renderTagButtons();
+            } catch (err) {
+                grid.innerHTML = `<div class="alert alert-danger text-center">Failed to load mods</div>`;
+                pageInfo.textContent = 'Error loading mods';
+            } finally {
+                state.loading = false;
+            }
+        }
+
+        function updateUrl() {
+            const p = new URLSearchParams();
+            if (state.query) p.set('query', state.query);
+            if (state.tags.length) p.set('tags', state.tags.join(','));
+            if (state.sort && state.sort !== 'downloads') p.set('sort', state.sort);
+            if (state.perPage && state.perPage !== 24) p.set('per_page', state.perPage);
+            if (state.page > 1) p.set('page', state.page);
+            window.history.replaceState({}, '', window.location.pathname + (p.toString() ? '?' + p.toString() : ''));
+        }
+
+        function loadFromUrl() {
+            const p = new URLSearchParams(window.location.search);
+            if (p.get('query')) { state.query = p.get('query'); searchInput.value = state.query; }
+            if (p.get('tags')) { state.tags = p.get('tags').split(',').filter(Boolean); }
+            if (p.get('sort') && ['downloads','recently_updated','recently_published','name','name_reverse','oldest'].includes(p.get('sort'))) {
+                state.sort = p.get('sort');
+                sortSelect.value = state.sort;
+            }
+            if ([12,24,48,96].includes(parseInt(p.get('per_page'), 10))) {
+                state.perPage = parseInt(p.get('per_page'), 10);
+                perPageSelect.value = state.perPage;
+            }
+            if (parseInt(p.get('page'), 10) > 0) state.page = parseInt(p.get('page'), 10);
+        }
+
+        function applyFilters() {
+            state.query = searchInput.value.trim();
+            state.sort = sortSelect.value;
+            state.perPage = parseInt(perPageSelect.value, 10) || 24;
+            state.page = 1;
+            updateUrl();
+            fetchMods();
+        }
+
+        async function init() {
+            loadFromUrl();
+            await fetchAvailableTags();
+            await fetchMods();
+
+            searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') applyFilters(); });
+            applyBtn.addEventListener('click', applyFilters);
+            sortSelect.addEventListener('change', function() {
+                state.sort = this.value;
+                state.page = 1;
+                updateUrl();
+                fetchMods();
+            });
+            perPageSelect.addEventListener('change', function() {
+                state.perPage = parseInt(this.value, 10) || 24;
+                state.page = 1;
+                updateUrl();
+                fetchMods();
+            });
+            prevBtn.addEventListener('click', function() {
+                if (state.page > 1) { state.page--; updateUrl(); fetchMods(); }
+            });
+            nextBtn.addEventListener('click', function() {
+                const totalPages = Math.ceil(state.total / state.perPage) || 1;
+                if (state.page < totalPages) { state.page++; updateUrl(); fetchMods(); }
+            });
+            clearTagsBtn.addEventListener('click', function() {
+                state.tags = [];
+                state.page = 1;
+                updateUrl();
+                fetchMods();
+            });
+        }
+
+        init();
+    })();
+    </script>
+    <?php
+    ui_footer();
+}
+
+function render_mod_page($id) {
+    $mods = db_read('mods.json') ?: [];
+    $mod = null;
+    foreach ($mods as $m) {
+        if ($m['id'] === $id) { $mod = $m; break; }
+    }
+    $user = current_user();
+    $is_admin = is_admin();
+
+    if (!$mod) {
+        http_response_code(404);
+        echo "<script>window.location.replace('https://geode-sdk.org/mods/" . $id . "');</script>";
+        exit;
+    }
+
+    ui_header(
+        htmlspecialchars($mod['versions'][0]['name'] ?? $mod['id']) . ' on Open Geode Index',
+        $mod['versions'][0]['description'] ?? '',
+        htmlspecialchars($mod['logo_url'] ?? '')
+    );
+
+    if ((empty($mod['about']) || !empty($mod['prefer_github_info'])) && !empty($mod['repo'])) {
+        $text = fetch_github_raw_text($mod['repo'], 'README.md');
+        if ($text === null) $text = fetch_github_raw_text($mod['repo'], 'about.md');
+        if ($text !== null) $mod['about'] = $text;
+    }
+
+    $owner_allowed = is_admin();
+    if (!$owner_allowed && $user) {
+        foreach ($mod['developers'] as $dev) {
+            if (!empty($dev['username']) && $dev['username'] === $user && !empty($dev['is_owner'])) { 
+                $owner_allowed = true; 
+                break; 
+            }
+        }
+    }
+    
+    $owner_display = '';
+    foreach ($mod['developers'] as $d) {
+        if (!empty($d['is_owner'])) { 
+            $owner_display = $d['display_name'] ?? ($d['username'] ?? ''); 
+            break; 
+        }
+    }
+    ?>
+<style>
+    .dev-card {
+        border: 1px solid var(--bs-border-color);
+        transition: all 0.2s;
+    }
+    .dev-card.bg-gradient {
+        background: linear-gradient(135deg, var(--bs-primary-bg-subtle), var(--bs-secondary-bg));
+    }
+    .dev-card .dev-avatar {
+        height: 64px;
+        width: 64px;
+        object-fit: cover;
+        border-radius: 4px 0 0 4px;
+    }
+</style>
 
 <div class="row">
+  <div class="col-md-8">
+    <div style="display: flex;gap: 12px;align-items: flex-start;height: 82px;">
+        <div style="max-width: 112px; text-align: center;">
+            <?php if (!empty($mod['logo_url'])): ?>
+                <img src="<?=htmlspecialchars($mod['logo_url'])?>" alt="Mod logo..." style="max-height:95px; width:auto;" onerror="this.style.opacity='0.5'; this.style.backdropFilter='brightness(0.5)'; this.style.borderStyle='outset'; this.style.borderWidth='3px 3px';">
+            <?php endif; ?>
+            <span style="width: 100%; display: block; margin-top: 4px;" class="likebtn-wrapper" data-theme="black" data-ef_voting="push" data-show_like_label="false" data-popup_style="dark" data-share_size="small" data-loader_show="true" data-identifier="<?=$mod['id']?>"></span>
+            <script>(function(d,e,s){if(d.getElementById("likebtn_wjs"))return;a=d.createElement(e);m=d.getElementsByTagName(e)[0];a.async=1;a.id="likebtn_wjs";a.src=s;m.parentNode.insertBefore(a, m)})(document,"script","//w.likebtn.com/js/w/widget.js");</script>
+        </div>
+        <div style="flex:1; min-width:0;">
+            <h2 class="m-0"><?=htmlspecialchars($mod['versions'][0]['name'] ?? $mod['id'])?></h2>
+            <h5 class="m-0 mb-1 text-body-tertiary" style="font-size:0.9rem;"><?=htmlspecialchars($mod['id'])?></h5>
+            <?php if (!empty($mod['versions'][0]['description'])): ?>
+                <span class="text-muted"><?=htmlspecialchars($mod['versions'][0]['description'])?></span>
+            <?php endif; ?>
+        </div>
+    </div>
 
-    <div class="col-md-4 my-1 py-1 border-end d-flex flex-column border-2">
-        <h3>About project</h3>
-        <hr class="my-1 mb-3">
-        <p>Welcome to the ALTERNATIVE catalog of mods for Geode, here you can find forbidden or lost mods that are kindly hidden from you. <i>Enjoy the underground~</i></p>
-        <p style="display: flex;justify-content: space-evenly;">
-            <a class="link-primary link-offset-2 link-underline-opacity-25 link-underline-opacity-100-hover" href="https://discord.gg/kXjQ8QEWNU" target="_blank">Discord</a>
-            <a class="link-info link-offset-2 link-underline-opacity-25 link-underline-opacity-100-hover" href="https://t.me/lil2kki_ch" target="_blank">Telegram</a>
-            <a class="link-body-emphasis link-offset-2 link-underline-opacity-25 link-underline-opacity-100-hover" href="https://github.com/lil2kki/Open-Geode-Index" target="_blank">GitHub</a>
-        </p>
-        <dl class="row px-2 mb-1">
-            <dt class="col-10 border-start my-1">Total mod count</dt><dd class="col-2 text-end border-end btn btn-link rounded-0 btn-sm fs-5 py-0"><?=htmlspecialchars($stats['total_mod_count'] ?? 0)?></dd>
-            <dt class="d-none col-10 border-start my-1">Total mod downloads</dt><dd class="d-none col-2 text-end border-end btn btn-link rounded-0 btn-sm fs-5 py-0"><?=htmlspecialchars($stats['total_mod_downloads'] ?? 0)?></dd>
-            <dt class="col-10 border-start my-1">Total registered users (devs)</dt><dd class="col-2 text-end border-end btn btn-link rounded-0 btn-sm fs-5 py-0"><?=htmlspecialchars($stats['total_registered_developers'] ?? 0)?></dd>
-        </dl>
-        <p><a class="btn btn-primary w-100 py-1" href="https://github.com/lil2kki/Open-Geode-Index#how-to-install" target="_blank">Download proxy mod for Geode Loader!</a></p>
-        <h3>Submit a mod</h3>
-        <hr class="my-1 mb-3">
-        <?php if (!$user): ?>
-            <div class="alert alert-warning">Please <a href="/login">sign in with GitHub</a> to submit mods.</div>
-        <?php else: ?>
-            <p class="text-muted">You can post anything you want but malware, pls provide us valid GitHub Repository cuz logo loading form it (user/repo/HEAD/logo.png)<br><br>You also can upload not your mods, but it would be sweet if you go to mod page and change developer displayname on real one instead you.<br><br>If you are developer and ownership of your repository was taken pls <a target="_blank" href="https://github.com/lil2kki/Open-Geode-Index/issues/new">send report here</a> so i give you access.</p>
-            <form method="post" action="/v1/mods" class="h-100">
-            <div class="form-group">
-                <label for="repo">Repository (user/repo)</label>
-                <input id="repo" name="repo" class="form-control" placeholder="lil2kki/mod" required>
+    <ul class="nav nav-underline mx-1 mt-2" style="justify-content: center;">
+        <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#about">About</a></li>
+        <li class="nav-item"><a class="nav-link <?php if (empty($mod['changelog'])): ?>disabled<?php endif; ?>" data-toggle="tab" href="#changelog">Changelog</a></li>
+    </ul>
+
+    <div class="tab-content mt-1">
+        <div class="tab-pane active" id="about">
+            <p class="mb-0"><?=md(strip_tags($mod['about'] ?? ''))?></p>
+        </div>
+        <?php if (!empty($mod['changelog'])): ?>
+            <div class="tab-pane" id="changelog">
+                <p class="mb-0"><?=md(strip_tags($mod['changelog']))?></p>
             </div>
-            <div class="form-group my-2">
-                <label for="download_link">Download link (.geode)</label>
-                <input id="download_link" name="download_link" class="form-control" placeholder="https://github.com/.../releases/download/vX.Y/file.geode" required>
-            </div>
-            <button class="w-100 btn btn-primary">Submit</button>
-            </form><?=asAPIReqForm()?>
         <?php endif; ?>
     </div>
 
-  <div class="col-md-8 mt-1 pt-1">
-
-    <div class="input-group mb-3">
-        <input type="text" id="searchInput" class="form-control" placeholder="Search..." onkeydown="if(event.key==='Enter') findAndScroll(this.value)">
-        <button class="btn btn-primary" onclick="findAndScroll(document.getElementById('searchInput').value)">Find</button>
-    </div>
-
-    <style> .highlight-search { background: yellow !important; color: black !important; } </style>
-    <script>
-    function findAndScroll(text) {
-        document.querySelectorAll('.highlight-search').forEach(el => { el.classList.remove('highlight-search'); });
-        if (text.length < 1) return;
-        window.find(text);
-        const walker = document.createTreeWalker(
-            document.body, NodeFilter.SHOW_TEXT,
-            { acceptNode: node => node.textContent.toLowerCase().includes(text.toLowerCase()) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT }
-        );
-        const nodes = [];
-        let node;
-        while (node = walker.nextNode()) nodes.push(node);
-        if (nodes.length > 0) {
-            nodes.forEach(n => {
-                const parent = n.parentElement;
-                if (!parent.classList.contains('highlight-search')) parent.classList.add('highlight-search');
-            });
-            const first = nodes[0].parentElement;
-            first.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-    }
-    </script>
-
-    <div class="row p-2" style="
-        justify-content: space-around;
-        align-items: center;
-        flex-flow: wrap-reverse;
-        align-items: stretch;
-        display: flex;
-    ">
-      <?php if (empty($mods)): ?>
-        <div class="col-12"><div class="alert alert-info">No mods available.</div></div>
-      <?php else: foreach ($mods as $mod): ?>
-          <a class="btn btn-outline-secondary card h-100 pt-2 mt-2" href="/ui/mod/<?=urlencode($mod['id'])?>">
-            <div style="display: flex; text-align: start;">
-                <div style="max-width:82px;display: flex;justify-content: center;">
-                    <img src="<?=htmlspecialchars($mod['logo_url'])?>" alt="Mod logo..." style="max-height:82px;" onerror="this.style.opacity='0.5'; this.style.backdropFilter='brightness(0.5)'; this.style.borderStyle='outset'; this.style.borderWidth='3px 3px';">
-                </div>
-                <div class="ms-2" style="display: flex; flex-direction: column; justify-content: space-between;">
-                    <h3 class="m-0 p-0" style="max-height: 28px;"><?=htmlspecialchars($mod['versions'][0]['name'])?></h2>
-                    <p class="m-0 p-0 text-body-tertiary"><?=$mod['id']?></p>
-                    <p class="m-0 pb-1 text-muted">
-                        <?php if (!empty($mod['versions'][0]['description'])): ?><?=strip_tags(md(strip_tags(mb_strimwidth($mod['versions'][0]['description'] ?? '', 0, 140, '...')), true), '<p><i><b><strong><code><pre>')?><?php endif; ?>
-                        <?php if (empty($mod['versions'][0]['description'])): ?> <?=strip_tags(md(strip_tags(mb_strimwidth($mod['about'] ?? '', 0, 140, '...')), true), '<p><i><b><strong><code><pre>')?><?php endif; ?>
-                    </p>
-                </div>
-                <p style="position:absolute; bottom:-15px; right: 5px;"><i class="bi bi-download"></i> <?=htmlspecialchars($mod['download_count'])?></p>
-                <span 
-                    style="position: absolute;right: 3px;" data-popup_position="left" data-popup_style="dark" 
-                    class="likebtn-wrapper" data-theme="black" data-ef_voting="push" data-show_like_label="false"
-                    data-share_size="small" data-loader_show="true" data-identifier="<?=$mod['id']?>"
-                >
-                </span>
-                <script>
-                    (function(d,e,s){if(d.getElementById("likebtn_wjs"))return;a=d.createElement(e);m=d.getElementsByTagName(e)[0];a.async=1;a.id="likebtn_wjs";a.src=s;m.parentNode.insertBefore(a, m)})
-                    (document,"script","//w.likebtn.com/js/w/widget.js");
-                </script>
-            </div>
-          </a>
-      <?php endforeach; endif; ?>
-    </div>
   </div>
+
+  <div class="col-md-4">
+
+    <hr>
+                
+    <?php if (!empty($mod['tags']) && is_array($mod['tags'])): ?>
+        <h4>Tags</h4>
+        <?php foreach ($mod['tags'] as $tag): ?>
+            <span style="font-size:0.7rem;padding:2px 10px;border-radius:12px;background:var(--bs-secondary-bg);color:var(--bs-secondary-color);text-transform:capitalize;"><?=htmlspecialchars($tag)?></span>
+        <?php endforeach; ?>
+    <?php endif; ?>
+
+    <h4 class="mt-2">Versions</h4>
+    <ul class="list-group mb-2" style="max-height: 220px; overflow-y: auto;">
+      <?php foreach ($mod['versions'] as $v): ?>
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <div><strong><?=htmlspecialchars($v['version'])?></strong></div>
+          <div style="display: flex; align-items: center;">
+              <div><i class="bi bi-download"></i> <?=htmlspecialchars($v['download_count'] ?? 0)?></div>
+              <a class="ms-2 btn btn-sm btn-success" href="/v1/mods/<?=urlencode($mod['id'])?>/versions/<?=urlencode($v['version'])?>/download">Download</a>
+          </div>
+        </li>
+      <?php endforeach; ?>
+    </ul>
+
+    <h5>Developers</h5>
+    <div style="max-height: 220px; overflow-y: auto;">
+      <?php foreach ($mod['developers'] as $d): ?>
+        <div class="mb-2 card dev-card <?php if ($d['username'] === $user): ?>bg-gradient<?php endif; ?>">
+            <div style="display: flex;">
+                <img id="ic-<?=htmlspecialchars($d['username'])?>" src="https://github.com/<?=htmlspecialchars($d['username'])?>.png" class="rounded-start dev-avatar" alt="<?=htmlspecialchars($d['username'])?>">
+                <img id="ic-<?=htmlspecialchars($d['display_name'])?>" class="rounded-start dev-avatar" style="display: none;"
+                    src="https://github.com/<?=htmlspecialchars($d['display_name'])?>.png"
+                    alt="<?=htmlspecialchars($d['display_name'])?>"
+                    onload="
+                        this.style.display='block';
+                        document.getElementById('ic-<?=htmlspecialchars($d['username'])?>').style.display='none';
+                        document.getElementById('a-<?=htmlspecialchars($d['display_name'])?>').href='https://github.com/<?=htmlspecialchars($d['display_name'])?>';
+                    "
+                >
+                <div class="border-start border-2 flex-grow-1">
+                    <div class="card-body p-1 px-2 pt-2 d-flex justify-content-between align-items-start">
+                        <div>
+                            <h5 class="card-title mb-1">
+                                <a id="a-<?=htmlspecialchars($d['display_name'])?>" target="_blank" href="https://github.com/<?=htmlspecialchars($d['username'])?>" class="link-body-emphasis link-offset-2 link-underline-opacity-25 link-underline-opacity-75-hover">
+                                    <?=htmlspecialchars($d['display_name'] ?? $d['username'])?>
+                                </a>
+                            </h5>
+                            <p class="card-text text-body-secondary" style="font-size:0.8rem; margin:0;">
+                                <?=htmlspecialchars($d['username'])?>
+                                <?php 
+                                    $role = !empty($d['role']) ? $d['role'] : (!empty($d['is_owner']) ? 'Owner' : 'Developer'); 
+                                ?>
+                                <span class="badge <?=!empty($d['is_owner']) ? 'text-bg-info' : 'text-bg-secondary'?>"><?=htmlspecialchars($role)?></span>
+                            </p>
+                        </div>
+                        <?php if ($owner_allowed): ?>
+                        <form onsubmit="
+                            event.preventDefault();
+                            if (!confirm('Remove <?=htmlspecialchars(addslashes($d['username']))?> from this mod?')) return;
+                            fetch('/v1/mods/<?=urlencode($mod['id'])?>/developers/<?=urlencode($d['username'])?>', {method:'DELETE'})
+                                .then(r => { if (r.ok) location.reload(); else r.json().then(d => alert(d.error || 'Failed to remove developer')).catch(() => alert('Failed to remove developer')); });
+                        ">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">✕</button>
+                        </form>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+      <?php endforeach; ?>
+    </div>
+
+    <?php if ($owner_allowed): ?>
+      <div class="card mb-2">
+        <div class="card-body">
+          <h6>Add / update developer</h6>
+          <form onsubmit="
+              event.preventDefault();
+              fetch('/v1/mods/<?=urlencode($mod['id'])?>/developers', {method: 'POST', body: new FormData(this)})
+                  .then(async r => {
+                      if (r.ok) { location.reload(); return; }
+                      let d; try { d = await r.json(); } catch (e) {}
+                      alert((d && d.error) || 'Failed to add developer');
+                  });
+          ">
+            <input name="username" class="form-control form-control-sm mb-2" placeholder="GitHub username" required>
+            <select name="role" class="form-select form-select-sm mb-2">
+              <option value="Developer">Developer</option>
+              <option value="Owner">Owner</option>
+              <option value="Porter">Porter</option>
+              <option value="Contributor">Contributor</option>
+            </select>
+            <button class="w-100 btn btn-sm btn-primary">Add / update developer</button>
+          </form>
+        </div>
+      </div>
+    <?php endif; ?>
+
+    <hr>
+
+    <?php if ($owner_allowed): ?>
+        <div class="card mb-2">
+            <div class="card-body">
+            <form id="mod-update-form" method="post" action="/v1/mods/<?=urlencode($mod['id'])?>">
+                <h6>Update mod</h6>
+
+                <div class="form-group my-2">
+                    <label class="form-label small">Tags (comma separated)</label>
+                    <input name="tags" class="form-control form-control-sm" value="<?=htmlspecialchars(implode(', ', $mod['tags'] ?? []))?>" placeholder="utility, library, fun">
+                </div>
+
+                <div class="form-group my-2">
+                    <label class="form-label small">Text source:</label>
+                    <select name="prefer_github_info" class="form-select form-select-sm">
+                        <option value="0" <?=empty($mod['prefer_github_info']) ? 'selected' : ''?>>From .geode file</option>
+                        <option value="1" <?=!empty($mod['prefer_github_info']) ? 'selected' : ''?>>From GitHub Repository</option>
+                    </select>
+                </div>
+
+                <div class="form-group my-2">
+                    <label class="form-label small">Owner display name</label>
+                    <input name="owner_display_name" class="form-control form-control-sm" value="<?=htmlspecialchars($owner_display)?>">
+                </div>
+
+                <div class="form-group my-2">
+                    <label class="form-label small">About / page text</label>
+                    <textarea name="about" class="form-control form-control-sm" rows="4"><?=htmlspecialchars($mod['about'] ?? '')?></textarea>
+                </div>
+
+                <div class="form-group my-2">
+                    <label class="form-label small">Logo URL</label>
+                    <input name="logo_url" class="form-control form-control-sm" value="<?=htmlspecialchars($mod['logo_url'] ?? '')?>">
+                </div>
+
+                <div class="form-group my-2 form-check">
+                    <input type="checkbox" id="refresh_metadata" name="refresh_metadata" value="1" class="form-check-input">
+                    <label for="refresh_metadata" class="form-check-label small">Re-sync from .geode</label>
+                </div>
+
+                <div class="form-group my-2">
+                    <label class="form-label small">New version download link</label>
+                    <input name="download_link" class="form-control form-control-sm" placeholder="https://...">
+                </div>
+
+                <button class="w-100 btn btn-primary btn-sm">Save changes</button>
+            </form>
+            <?=asAPIReqForm('#mod-update-form')?>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($owner_allowed): ?>
+      <div class="mb-2 alert alert-danger">
+        <div class="card-body">
+          <form method="post" action="/v1/mods/<?=urlencode($mod['id'])?>"
+      onsubmit="event.preventDefault();if(!confirm('Delete <?=htmlspecialchars($mod['id'])?>?\nAction can\'t be undone...')) return;fetch(this.action, {method:'POST', body:new FormData(this)}).then(() => {history.back(); setTimeout(()=>location.reload(), 200)});">
+            <input type="hidden" name="_method" value="DELETE">
+            <button type="submit" class="w-100 btn btn-sm btn-outline-danger">Delete mod</button>
+          </form>
+        </div>
+      </div>
+    <?php endif; ?>
+
+    <?php if (is_admin()): ?>
+      <div class="card">
+        <div class="card-body">
+          <form method="post" action="/ui/admin">
+            <input type="hidden" name="action" value="toggle_featured">
+            <input type="hidden" name="modid" value="<?=htmlspecialchars($mod['id'])?>">
+            <select name="featured" class="form-select form-select-sm my-1">
+                <option value="0" <?=empty($mod['featured']) ? 'selected' : ''?>>Featured: No</option>
+                <option value="1" <?=!empty($mod['featured']) ? 'selected' : ''?>>Featured: Yes</option>
+            </select>
+            <button class="w-100 btn btn-sm btn-outline-danger">Apply</button>
+          </form>
+        </div>
+      </div>
+    <?php endif; ?>
+
+  </div>
+
+  <?php if (!empty($mod['repository'])): ?>
+    <span class="w-100 text-center small">Repository: <a href="<?=htmlspecialchars($mod['repository'])?>" target="_blank"><?=htmlspecialchars($mod['repository'])?></a></span>
+  <?php endif; ?>
 
 </div>
 <?php
@@ -2269,249 +2888,6 @@ function render_install() {
     <div class="col-md-6">
         <img style="max-width: 100%;" alt="image" src="https://github.com/user-attachments/assets/dc4987df-b2fa-430f-8610-66bf4ce64862"/>
     </div>
-</div>
-<?php
-    ui_footer();
-}
-
-function render_mod_page($id) {
-    $mods = db_read('mods.json') ?: [];
-    $mod = null;
-    foreach ($mods as $m) {
-        if ($m['id'] === $id) { $mod = $m; break; }
-    }
-    $user = current_user();
-    $is_admin = is_admin();
-
-    ui_header(htmlspecialchars($mod['versions'][0]['name']) . ' on Open Geode Index', $mod['versions'][0]['description'], htmlspecialchars($mod['logo_url']));
-
-    if (!$mod) {
-        http_response_code(404);
-        echo "<script>window.location.replace('https://geode-sdk.org/mods/" . $id . "');</script>";
-        exit;
-    }
-
-    if ((empty($mod['about']) || !empty($mod['prefer_github_info'])) && !empty($mod['repo'])) {
-        $text = fetch_github_raw_text($mod['repo'], 'README.md');
-        if ($text === null) $text = fetch_github_raw_text($mod['repo'], 'about.md');
-        if ($text !== null) $mod['about'] = $text;
-    }
-
-    $owner_allowed = is_admin();
-    if (!$owner_allowed && $user) {
-        foreach ($mod['developers'] as $dev) {
-            if (!empty($dev['username']) && $dev['username'] === $user && !empty($dev['is_owner'])) { $owner_allowed = true; break; }
-        }
-    }
-    $owner_display = '';
-    foreach ($mod['developers'] as $d) {
-        if (!empty($d['is_owner'])) { $owner_display = $d['display_name'] ?? ($d['username'] ?? ''); break; }
-    }
-    ?>
-<div class="row">
-  <div class="col-md-8">
-	<div class="" style="display: flex;">
-		<div style="max-width: 112px; text-align: center; max-height: 95px;">
-            <?php if (!empty($mod['logo_url'])): ?><img src="<?=htmlspecialchars($mod['logo_url'])?>" alt="Mod logo..." style="max-height:95px;" onerror="this.style.opacity='0.5'; this.style.backdropFilter='brightness(0.5)'; this.style.borderStyle='outset'; this.style.borderWidth='3px 3px';"><?php endif; ?>
-            <!-- LikeBtn.com BEGIN -->
-            <span style="width: 100%;" class="likebtn-wrapper" data-theme="black" data-ef_voting="push" data-show_like_label="false" data-popup_style="dark" data-share_size="small" data-loader_show="true" data-identifier="<?=$mod['id']?>"></span>
-            <script>(function(d,e,s){if(d.getElementById("likebtn_wjs"))return;a=d.createElement(e);m=d.getElementsByTagName(e)[0];a.async=1;a.id="likebtn_wjs";a.src=s;m.parentNode.insertBefore(a, m)})(document,"script","//w.likebtn.com/js/w/widget.js");</script>
-            <!-- LikeBtn.com END -->
-		</div>
-		<div class="ms-2">
-			<h2 class="m-0"><?=htmlspecialchars($mod['versions'][0]['name'])?></h2>
-			<h5 class="m-0 mb-1 text-body-tertiary"><?=$mod['id']?></h5>
-			<?php if (!empty($mod['versions'][0]['description'])): ?><span class="text-muted"><?=htmlspecialchars($mod['versions'][0]['description'])?></span><?php endif; ?>
-		</div>
-	</div>
-
-    <ul class="nav nav-underline mx-1" style="justify-content: center;">
-        <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#about">About</a></li>
-        <li class="nav-item"><a class="nav-link <?php if (empty($mod['changelog'])): ?>disabled<?php endif; ?>" data-toggle="tab" href="#changelog">Changelog</a></li>
-    </ul>
-
-    <div class="tab-content mt-1">
-    <div class="tab-pane active" id="about">
-        <p class="mb-0"><?=md(strip_tags($mod['about'] ?? ''))?></p>
-    </div>
-<?php if (!empty($mod['changelog'])): ?>
-    <div class="tab-pane" id="changelog">
-        <p class=" mb-0"><?=md(strip_tags($mod['changelog']))?></p>
-    </div>
-<?php endif; ?>
-    </div>
-
-  </div>
-
-  <div class="col-md-4">
-
-	<hr>
-
-    <h4>Versions</h4>
-    <ul class="list-group mb-3">
-      <?php foreach ($mod['versions'] as $v): ?>
-        <li class="list-group-item d-flex justify-content-between align-items-center">
-          <div><strong><?=htmlspecialchars($v['version'])?></strong></div>
-          <div style="display: flex; align-items: center;">
-              <div><i class="bi bi-download"></i> <?=htmlspecialchars($v['download_count'])?></div>
-              <a class="ms-2 btn btn-sm btn-success" href="/v1/mods/<?=urlencode($mod['id'])?>/versions/<?=urlencode($v['version'])?>/download">Download</a>
-          </div>
-        </li>
-      <?php endforeach; ?>
-    </ul>
-
-    <h5>Developers</h5>
-    <div>
-      <?php foreach ($mod['developers'] as $d): ?>
-        <div class="mb-2 card <?php if ($d['username'] === $user): ?>bg-gradient<?php endif; ?>">
-            <div style="display: flex;">
-                <img id="ic-<?=htmlspecialchars($d['username'])?>" src="https://github.com/<?=htmlspecialchars($d['username'])?>.png" class="rounded-start" style="height: 70px;" alt="<?=htmlspecialchars($d['username'])?>">
-                <img id="ic-<?=htmlspecialchars($d['display_name'])?>" class="rounded-start" style="height: 70px; display: none;"
-                    src="https://github.com/<?=htmlspecialchars($d['display_name'])?>.png"
-                    alt="<?=htmlspecialchars($d['display_name'])?>"
-                    onload="
-                        this.style.display='block';
-                        document.getElementById('ic-<?=htmlspecialchars($d['username'])?>').style.display='none';
-                        document.getElementById('a-<?=htmlspecialchars($d['display_name'])?>').href='https://github.com/<?=htmlspecialchars($d['display_name'])?>';
-                    "
-                >
-                <div class="border-start border-2 flex-grow-1">
-                    <div class="card-body p-1 px-2 pt-2 d-flex justify-content-between align-items-start">
-                        <div>
-                            <h5 class="card-title">
-                                <a id="a-<?=htmlspecialchars($d['display_name'])?>" target="_blank" href="https://github.com/<?=htmlspecialchars($d['username'])?>" class="link-body-emphasis link-offset-2 link-underline-opacity-25 link-underline-opacity-75-hover">
-                                    <?=htmlspecialchars($d['display_name'])?>
-                                </a>
-                            </h5>
-                            <p class="card-text text-body-secondary">
-                                <?=htmlspecialchars($d['username'])?>
-                                <?php $role = !empty($d['role']) ? $d['role'] : (!empty($d['is_owner']) ? 'Owner' : 'Developer'); ?>
-                                <span class="badge <?=!empty($d['is_owner']) ? 'text-bg-info' : 'text-bg-secondary'?>"><?=htmlspecialchars($role)?></span>
-                            </p>
-                        </div>
-                        <?php if ($owner_allowed): ?>
-                        <form onsubmit="
-                            event.preventDefault();
-                            if (!confirm('Remove <?=htmlspecialchars(addslashes($d['username']))?> from this mod?')) return;
-                            fetch('/v1/mods/<?=urlencode($mod['id'])?>/developers/<?=urlencode($d['username'])?>', {method:'DELETE'})
-                                .then(r => { if (r.ok) location.reload(); else r.json().then(d => alert(d.error || 'Failed to remove developer')).catch(() => alert('Failed to remove developer')); });
-                        ">
-                            <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
-                        </form>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-        </div>
-      <?php endforeach; ?>
-    </div>
-
-    <?php if ($owner_allowed): ?>
-      <div class="card mb-3">
-        <div class="card-body">
-          <h6>Add / update developer</h6>
-          <form onsubmit="
-              event.preventDefault();
-              fetch('/v1/mods/<?=urlencode($mod['id'])?>/developers', {method: 'POST', body: new FormData(this)})
-                  .then(async r => {
-                      if (r.ok) { location.reload(); return; }
-                      let d; try { d = await r.json(); } catch (e) {}
-                      alert((d && d.error) || 'Failed to add developer');
-                  });
-          ">
-            <input name="username" class="form-control mb-2" placeholder="GitHub username" required>
-            <select name="role" class="form-control mb-2">
-              <option value="Developer">Developer</option>
-              <option value="Owner">Owner (main dev)</option>
-              <option value="Porter">Porter</option>
-              <option value="Contributor">Contributor</option>
-            </select>
-            <button class="w-100 btn btn-sm btn-primary">Add / update developer</button>
-          </form>
-        </div>
-      </div>
-    <?php endif; ?>
-
-	<hr>
-
-    <?php if ($owner_allowed): ?>
-        <div class="card mb-3">
-            <div class="card-body">
-            <form id="mod-update-form" method="post" action="/v1/mods/<?=urlencode($mod['id'])?>">
-                <h6>Update</h6>
-
-                <div class="form-group my-2">
-                    <label for="prefer_github_info">Text source preference:</label>
-                    <select id="prefer_github_info" name="prefer_github_info" class="form-control">
-                        <option value="0" <?=empty($mod['prefer_github_info']) ? 'selected' : ''?>>From .geode file</option>
-                        <option value="1" <?=!empty($mod['prefer_github_info']) ? 'selected' : ''?>>From GitHub Repository</option>
-                    </select>
-                </div>
-
-                <div class="form-group my-2">
-                    <label for="owner_display_name">Owner display name</label>
-                    <input id="owner_display_name" name="owner_display_name" class="form-control" value="<?=htmlspecialchars($owner_display)?>">
-                </div>
-
-                <div class="form-group my-2">
-                    <label for="about">About / page text</label>
-                    <textarea id="about" name="about" class="form-control" rows="5"><?=htmlspecialchars($mod['about'] ?? '')?></textarea>
-                    <small class="form-text text-muted">Editing this does not touch versions or download counts.</small>
-                </div>
-
-                <div class="form-group my-2">
-                    <label for="logo_url">Logo URL</label>
-                    <input id="logo_url" name="logo_url" class="form-control" value="<?=htmlspecialchars($mod['logo_url'] ?? '')?>">
-                </div>
-
-                <div class="form-group my-2 form-check">
-                    <input type="checkbox" id="refresh_metadata" name="refresh_metadata" value="1" class="form-check-input">
-                    <label for="refresh_metadata" class="form-check-label">Re-sync about/changelog from the currently uploaded .geode file</label>
-                </div>
-
-                <div class="form-group my-2">
-                    <label for="download_link">Download link (only set this to publish a new version)</label>
-                    <input id="download_link" name="download_link" class="form-control">
-                </div>
-
-                <button class="w-100 btn btn-primary btn-block">Submit</button>
-            </form><?=asAPIReqForm('#mod-update-form')?>
-            </div>
-        </div>
-    <?php endif; ?>
-
-    <?php if ($owner_allowed): ?>
-      <div class="card mb-3">
-        <div class="card-body">
-          <form method="post" action="/v1/mods/<?=urlencode($mod['id'])?>"
-      onsubmit="event.preventDefault();if(!confirm('Delete <?=htmlspecialchars($mod['id'])?>?\nAction can\'t be undone...')) return;fetch(this.action, {method:'POST', body:new FormData(this)}).then(() => {history.back(); setTimeout(()=>location.reload(), 200)});">
-            <input type="hidden" name="_method" value="DELETE">
-            <button type="submit" class="w-100 btn btn-sm btn-danger">Delete mod</button>
-          </form>
-        </div>
-      </div>
-    <?php endif; ?>
-
-    <?php if (is_admin()): ?>
-      <div class="card">
-        <div class="card-body">
-          <form method="post" action="/ui/admin">
-            <input type="hidden" name="action" value="toggle_featured">
-            <input type="hidden" name="modid" value="<?=htmlspecialchars($mod['id'])?>">
-            <select name="featured" class="form-control my-1">
-                <option value="0" <?=empty($mod['featured']) ? 'selected' : ''?>>Featured: No</option>
-                <option value="1" <?=!empty($mod['featured']) ? 'selected' : ''?>>Featured: Yes</option>
-            </select>
-            <button class="w-100 btn btn-danger btn-block">Apply</button>
-          </form>
-        </div>
-      </div>
-    <?php endif; ?>
-
-  </div>
-
-  <?php if (!empty($mod['repository'])): ?><span class="w-100 text-center">Repository: <a href="<?=htmlspecialchars($mod['repository'])?>" target="_blank"><?=htmlspecialchars($mod['repository'])?></a></span><?php endif; ?>
-
 </div>
 <?php
     ui_footer();
