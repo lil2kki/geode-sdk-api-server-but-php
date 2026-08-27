@@ -2015,6 +2015,7 @@ function ui_header(
   <meta name="description" content="<?php echo $description; ?>">
   <meta name="theme-color" content="#0b0b0b">
   <meta name="robots" content="index,follow">
+  <meta name="yandex-verification" content="0cedeb9d864b51a7" />
 
   <meta property="og:title" content="<?php echo $site_title; ?>">
   <meta property="og:description" content="<?php echo $description; ?>">
@@ -2048,11 +2049,13 @@ function ui_header(
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
 
   <style>
-    body{overflow-wrap: anywhere;}
-    .card-pre{white-space:pre-wrap;}
+    html { overflow-y: scroll; }
+    body { overflow-wrap: anywhere; }
+    .card-pre { white-space:pre-wrap; }
   </style>
 </head>
 <body style="padding-top: 80px;">
+    <h1 class="d-none"><?php echo htmlspecialchars($title, ENT_QUOTES, 'UTF-8'); ?></h1>
     <nav class="navbar fixed-top navbar-expand-lg border-bottom px-4 bg-black">
         <a class="navbar-brand" href="/ui">Open Geode Index</a>
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#mainNavbar" aria-controls="mainNavbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -2168,7 +2171,7 @@ function render_ui() {
     }
     </script>
 
-    <div class="row" style="
+    <div class="row p-2" style="
         justify-content: space-around;
         align-items: center;
         flex-flow: wrap-reverse;
@@ -2177,17 +2180,33 @@ function render_ui() {
     ">
       <?php if (empty($mods)): ?>
         <div class="col-12"><div class="alert alert-info">No mods available.</div></div>
-      <?php else: foreach ($mods as $m): ?>
-        <div class="col-sm-6 col-lg-4 p-2" style="text-align: center;">
-          <a class="btn btn-outline-secondary card h-100 pt-3" href="/ui/mod/<?=urlencode($m['id'])?>">
-            <?php if (!empty($m['logo_url'])): ?><img class="card-img-top" src="<?=htmlspecialchars($m['logo_url'])?>" alt="logo" style="object-fit:scale-down;height:140px;" onerror="this.style.display='none'"><?php endif; ?>
-            <div class="card-body d-flex flex-column">
-              <h5 class="card-title mb-1"><?=htmlspecialchars($m['id'])?></h5>
-              <p style="position:absolute; bottom:-15px; right: 5px;"><i class="bi bi-download"></i> <?=htmlspecialchars($m['download_count'])?></p>
-              <p class="card-text text-muted"><?=strip_tags(md(strip_tags(mb_strimwidth($m['about'] ?? '', 0, 140, '...')), true), '<p><i><b><strong><code><pre>')?></p>
+      <?php else: foreach ($mods as $mod): ?>
+          <a class="btn btn-outline-secondary card h-100 pt-2 mt-2" href="/ui/mod/<?=urlencode($mod['id'])?>">
+            <div style="display: flex; text-align: start;">
+                <div style="max-width:82px;display: flex;justify-content: center;">
+                    <img src="<?=htmlspecialchars($mod['logo_url'])?>" alt="Mod logo..." style="max-height:82px;" onerror="this.style.opacity='0.5'; this.style.backdropFilter='brightness(0.5)'; this.style.borderStyle='outset'; this.style.borderWidth='3px 3px';">
+                </div>
+                <div class="ms-2" style="display: flex; flex-direction: column; justify-content: space-between;">
+                    <h3 class="m-0 p-0" style="max-height: 28px;"><?=htmlspecialchars($mod['versions'][0]['name'])?></h2>
+                    <p class="m-0 p-0 text-body-tertiary"><?=$mod['id']?></p>
+                    <p class="m-0 pb-1 text-muted">
+                        <?php if (!empty($mod['versions'][0]['description'])): ?><?=strip_tags(md(strip_tags(mb_strimwidth($mod['versions'][0]['description'] ?? '', 0, 140, '...')), true), '<p><i><b><strong><code><pre>')?><?php endif; ?>
+                        <?php if (empty($mod['versions'][0]['description'])): ?> <?=strip_tags(md(strip_tags(mb_strimwidth($mod['about'] ?? '', 0, 140, '...')), true), '<p><i><b><strong><code><pre>')?><?php endif; ?>
+                    </p>
+                </div>
+                <p style="position:absolute; bottom:-15px; right: 5px;"><i class="bi bi-download"></i> <?=htmlspecialchars($mod['download_count'])?></p>
+                <span 
+                    style="position: absolute;right: 3px;" data-popup_position="left" data-popup_style="dark" 
+                    class="likebtn-wrapper" data-theme="black" data-ef_voting="push" data-show_like_label="false"
+                    data-share_size="small" data-loader_show="true" data-identifier="<?=$mod['id']?>"
+                >
+                </span>
+                <script>
+                    (function(d,e,s){if(d.getElementById("likebtn_wjs"))return;a=d.createElement(e);m=d.getElementsByTagName(e)[0];a.async=1;a.id="likebtn_wjs";a.src=s;m.parentNode.insertBefore(a, m)})
+                    (document,"script","//w.likebtn.com/js/w/widget.js");
+                </script>
             </div>
           </a>
-        </div>
       <?php endforeach; endif; ?>
     </div>
   </div>
@@ -2213,7 +2232,7 @@ function render_devs() {
       <?php else: foreach ($developers as $dev): ?>
         <div style="text-align: center; <?php if ($dev['username'] === $user): ?> order: -1; <?php endif; ?>" class="col-sm-4 col-lg-2 p-2">
           <div class="card h-100 pt-3 <?php if ($dev['username'] === $user): ?> bg-gradient <?php endif; ?>">
-            <img class="card-img-top" src="https://github.com/<?=htmlspecialchars($dev['username'])?>.png" alt="logo" style="object-fit:scale-down;height:140px;" onerror="this.style.display='none'">
+            <img class="card-img-top" src="https://github.com/<?=htmlspecialchars($dev['username'])?>.png" alt="Avatar..." style="object-fit:scale-down;height:140px;" onerror="this.style.opacity='0.5'; this.style.backdropFilter='brightness(0.5)'; this.style.borderStyle='outset'; this.style.borderWidth='3px 3px';">
             <div class="card-body d-flex flex-column">
               <h5 class="card-title mb-1">
                 <a target="_blank" href="https://github.com/<?=htmlspecialchars($dev['username'])?>" class="link-body-emphasis link-offset-2 link-underline-opacity-25 link-underline-opacity-75-hover">
@@ -2292,10 +2311,16 @@ function render_mod_page($id) {
 <div class="row">
   <div class="col-md-8">
 	<div class="" style="display: flex;">
-		<?php if (!empty($mod['logo_url'])): ?><img src="<?=htmlspecialchars($mod['logo_url'])?>" alt="logo" style="max-height:95px;" onerror="this.style.display='none'"><?php endif; ?>
+		<div style="max-width: 112px; text-align: center; max-height: 95px;">
+            <?php if (!empty($mod['logo_url'])): ?><img src="<?=htmlspecialchars($mod['logo_url'])?>" alt="Mod logo..." style="max-height:95px;" onerror="this.style.opacity='0.5'; this.style.backdropFilter='brightness(0.5)'; this.style.borderStyle='outset'; this.style.borderWidth='3px 3px';"><?php endif; ?>
+            <!-- LikeBtn.com BEGIN -->
+            <span style="width: 100%;" class="likebtn-wrapper" data-theme="black" data-ef_voting="push" data-show_like_label="false" data-popup_style="dark" data-share_size="small" data-loader_show="true" data-identifier="<?=$mod['id']?>"></span>
+            <script>(function(d,e,s){if(d.getElementById("likebtn_wjs"))return;a=d.createElement(e);m=d.getElementsByTagName(e)[0];a.async=1;a.id="likebtn_wjs";a.src=s;m.parentNode.insertBefore(a, m)})(document,"script","//w.likebtn.com/js/w/widget.js");</script>
+            <!-- LikeBtn.com END -->
+		</div>
 		<div class="ms-2">
 			<h2 class="m-0"><?=htmlspecialchars($mod['versions'][0]['name'])?></h2>
-			<h5 class="m-0 mb-1 text-body-tertiary"><?=htmlspecialchars($mod['id'])?></h5>
+			<h5 class="m-0 mb-1 text-body-tertiary"><?=$mod['id']?></h5>
 			<?php if (!empty($mod['versions'][0]['description'])): ?><span class="text-muted"><?=htmlspecialchars($mod['versions'][0]['description'])?></span><?php endif; ?>
 		</div>
 	</div>
