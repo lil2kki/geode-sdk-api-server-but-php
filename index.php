@@ -17,6 +17,15 @@ if (!file_exists(DATA_DIR)) {
     @mkdir(DATA_DIR, 0755, true);
 }
 
+// Allow browser-side fetch() calls from other origins to read the API.
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Upstream-Url');
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(204); 
+    exit;
+}
+
 /* ======================= BOOT ======================= */
 session_start();
 
@@ -2362,40 +2371,21 @@ function render_ui() {
                                 <img src="${esc(logo)}" alt="Mod logo..." style="height:72px;" onerror="this.style.opacity='0.5';this.style.backdropFilter='brightness(0.5)';this.style.borderStyle='outset';this.style.borderWidth='3px 3px';">
                             </div>
                             <div class="ms-2" style="display:flex;flex-direction:column;justify-content:space-between;flex:1;min-width:0;">
-                                <div class="mod-title-row" style="max-height: 22px;">
-                                    <h3 class="m-0 p-0" style="max-height:28px;font-size:1.5rem;">${esc(name)}</h3>
-                                    <div class="tags-row">
-                                        ${tags.map(t => `<span class="tag-badge">${esc(t)}</span>`).join('')}
-                                    </div>
+                                <div class="mod-title-row">
+                                    <h3 class="m-0 p-0" style="font-size:1.5rem;">${esc(name)}</h3>
+                                    <div class="tags-row">${tags.map(t => `<span class="tag-badge">${esc(t)}</span>`).join('')}</div>
                                 </div>
-                                <p class="m-0 p-0 text-body-tertiary" style="font-size:0.8rem;">${esc(modId)}</p>
+                                <p class="m-0 p-0 text-body-tertiary" style="max-height: 22px;font-size:0.8rem;">${esc(modId)}</p>
                                 <p class="m-0 pb-1 text-muted" style="font-size:0.85rem;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
                                     ${desc ? esc(strip(desc)) : ''}
                                 </p>
                             </div>
                         </div>
                         <span class="downloads-badge"><i class="bi bi-download"></i> ${downloads}</span>
-                        <span class="like-btn">
-                            <span class="likebtn-wrapper" data-theme="black" data-ef_voting="push" data-show_like_label="false" data-popup_style="dark" data-share_size="small" data-loader_show="true" data-identifier="${esc(identifier)}"></span>
-                        </span>
                     </a>
                 `;
             }
             grid.innerHTML = html;
-
-            // Re-init LikeBtn for new elements
-            if (window.LikeBtn) {
-                LikeBtn.init();
-            } else {
-                // Load LikeBtn if not loaded
-                if (!document.getElementById('likebtn_wjs')) {
-                    const s = document.createElement('script');
-                    s.id = 'likebtn_wjs';
-                    s.async = true;
-                    s.src = '//w.likebtn.com/js/w/widget.js';
-                    document.body.appendChild(s);
-                }
-            }
         }
 
         function updatePagination() {
@@ -2610,7 +2600,7 @@ function render_mod_page($id) {
 
 <div class="row">
   <div class="col-md-8">
-    <div style="display: flex;gap: 12px;align-items: flex-start;height: 82px;">
+    <div style="display: flex;gap: 12px;align-items: flex-start;">
         <div style="max-width: 112px; text-align: center;">
             <?php if (!empty($mod['logo_url'])): ?>
                 <img src="<?=htmlspecialchars($mod['logo_url'])?>" alt="Mod logo..." style="max-height:95px; width:auto;" onerror="this.style.opacity='0.5'; this.style.backdropFilter='brightness(0.5)'; this.style.borderStyle='outset'; this.style.borderWidth='3px 3px';">
