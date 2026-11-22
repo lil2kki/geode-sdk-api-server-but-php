@@ -5,7 +5,6 @@ define('DATA_DIR', __DIR__ . '/data');
 define('SESSION_COOKIE', 'ogi_session');
 define('ACCESS_TOKEN_TTL', 60 * 60 * 24 * 7);
 define('REFRESH_TOKEN_TTL', 60 * 60 * 24 * 30);
-// [PATCH] Set DEBUG true only locally — enables pretty-print JSON and verbose errors
 define('DEBUG', false);
 define('MAX_UPLOAD_BYTES', 120 * 1024 * 1024);
 define('UPSTREAM_CACHE_TTL', 300);
@@ -2635,13 +2634,28 @@ function render_install() {
     ?>
     <h3>How to install</h3>
     <hr>
-    <p>Open Geode Index is used as a mirror/proxy for the Geode mod loader. To use it:</p>
-    <ol>
-      <li>Install the <a href="https://github.com/lil2kki/Open-Geode-Index#how-to-install" target="_blank">proxy mod</a> for Geode Loader.</li>
-      <li>In Geode settings, set the mod source to this site's URL.</li>
-      <li>Restart Geode. Mods should now be listed here.</li>
-    </ol>
-    <p>Alternatively, use the API directly. See <a href="/developers">developers</a> page and <a href="/health">/health</a>.</p>
+    <div class="row">
+        <div class="col-md-5 fs-5" style="
+            display: flex;
+            flex-wrap: wrap;
+        ">
+            <ol>
+              <li><a class="" href="https://github.com/lil2kki/Open-Geode-Index/releases/latest">Download</a> latest version of mod</li>
+              <li>Open settings of Geode Loader</li>
+              <li>Click the "Install From File" button</li>
+              <li>Select downloaded file and confirm</li>
+              <li>Restart game</li>
+              <li>Check if there is new option in search filters</li>
+            </ol>
+            <img style="max-width: 100%;" src="https://github.com/user-attachments/assets/b70d4d57-bfdc-4acb-902f-bb77da7bfd41">
+        </div>
+        <div class="col-md-7" style="
+            display: flex;
+            align-items: flex-end;
+        ">
+            <img style="max-width: 100%;" src="https://github.com/user-attachments/assets/dc4987df-b2fa-430f-8610-66bf4ce64862"/>
+        </div>
+    </div>
     <?php
     ui_footer();
 }
