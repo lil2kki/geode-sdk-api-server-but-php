@@ -5,7 +5,7 @@ define('DATA_DIR', __DIR__ . '/data');
 define('SESSION_COOKIE', 'ogi_session');
 define('ACCESS_TOKEN_TTL', 60 * 60 * 24 * 7);
 define('REFRESH_TOKEN_TTL', 60 * 60 * 24 * 30);
-// [PATCH] Поставь DEBUG true только локально — включает pretty-print JSON и подробные ошибки
+// [PATCH] Set DEBUG true only locally — enables pretty-print JSON and verbose errors
 define('DEBUG', false);
 define('MAX_UPLOAD_BYTES', 120 * 1024 * 1024);
 define('UPSTREAM_CACHE_TTL', 300);
@@ -32,12 +32,12 @@ session_start();
 
 /* ======================= [PATCH] SECURITY & INFRA ======================= */
 
-// CSRF-токен на сессию
+// CSRF token per session
 if (empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(16));
 define('CSRF_TOKEN', $_SESSION['csrf']);
 
 function csrf_check_if_session() {
-    // Bearer-токены CSRF не подвержены, проверяем только сессионные действия
+    // Bearer tokens are not CSRF-prone, check only session-based actions
     if (empty($_SESSION['github_user'])) return;
     $sent = $_POST['csrf'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
     if (!hash_equals(CSRF_TOKEN, (string)$sent)) {
@@ -45,14 +45,14 @@ function csrf_check_if_session() {
     }
 }
 
-// Простой файловый rate-limiter по IP. $bucket — своё пространство имён.
+// Simple file-based rate limiter keyed by IP. $bucket is its own namespace.
 function rate_limit($bucket, $max = 300, $window = 60) {
     $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
     $key = $bucket . ':' . $ip;
     $data = db_read('ratelimit.json') ?: [];
     $now = time();
 
-    // Периодическая очистка
+    // Periodic cleanup
     if (mt_rand(1, 50) === 1) {
         foreach ($data as $k => $v) if (($v['reset'] ?? 0) < $now) unset($data[$k]);
     }
@@ -82,7 +82,7 @@ function api_log($action, $data = []) {
     @file_put_contents(DATA_DIR . '/access.log', $line . "\n", FILE_APPEND | LOCK_EX);
 }
 
-// [PATCH] Защита от SSRF. Разрешаем только http/https и публичные IP.
+// [PATCH] SSRF protection. Allow only http/https and public IPs.
 function is_safe_url($url) {
     if (empty($url) || !is_string($url)) return false;
     $p = @parse_url($url);
@@ -114,7 +114,7 @@ function is_safe_url($url) {
     if (!$ips) return false;
     foreach ($ips as $ip) {
         if (!filter_var($ip, FILTER_VALIDATE_IP)) return false;
-        // Отсекаем private/reserved/loopback/link-local
+        // Reject private/reserved/loopback/link-local
         if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
             return false;
         }
@@ -128,7 +128,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 if ($uri !== '/' && substr($uri, -1) === '/') $uri = rtrim($uri, '/');
 
-// [PATCH] Глобальный rate limit. GET/HEAD — щедро, остальное — строже.
+// [PATCH] Global rate limit. GET/HEAD generous, everything else stricter.
 rate_limit('global', ($method === 'GET' || $method === 'HEAD') ? 600 : 120, 60);
 
 route($method, $uri);
@@ -146,7 +146,7 @@ function route($method, $uri) {
     if ($uri === '/ui/admin' && $method === 'GET') return render_admin_page();
     if ($uri === '/ui/admin' && $method === 'POST') return handle_admin_form();
 
-    // [PATCH] расширенный /health
+    // [PATCH] extended /health
     if ($uri === '/health' && $method === 'GET') {
         $upstream_ok = false;
         if (defined('UPSTREAM_URL') && UPSTREAM_URL) {
@@ -164,7 +164,7 @@ function route($method, $uri) {
         exit;
     }
 
-    // tags (кэшируемые)
+    // tags (cacheable)
     if ($uri === '/v1/tags' && $method === 'GET') return api_tags_index();
     if ($uri === '/v1/detailed-tags' && $method === 'GET') return api_tags_detailed();
 
@@ -312,7 +312,7 @@ function fetch_remote_file_to_temp($url, $max_bytes = MAX_UPLOAD_BYTES, $timeout
                 if (strpos($loc, '/') === 0) $loc = $scheme . '://' . $host . $port . $loc;
                 else $loc = $scheme . '://' . $host . $port . (isset($base['path']) ? dirname($base['path']) . '/' : '') . $loc;
             }
-            // [PATCH] каждый хоп редиректа тоже проверяем
+            // [PATCH] validate each redirect hop
             if (!is_safe_url($loc)) return null;
             $current = $loc;
             $redirects++;
@@ -400,7 +400,7 @@ function json_response($data, $status = 200) {
     exit;
 }
 
-// [PATCH] JSON-ответ с ETag / 304. Для редко меняющихся эндпоинтов.
+// [PATCH] JSON response with ETag / 304. For rarely changing endpoints.
 function json_response_etag($data, $status = 200, $ttl = 60) {
     $body = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     $etag = '"' . md5($body) . '"';
@@ -564,27 +564,68 @@ function map_modjson_developers($devs, $submitter = null) {
 
 /* ======================= GITHUB helpers & token issuance ======================= */
 
+// Returns ['token' => '...'] or ['error' => '...', 'description' => '...', 'raw' => '...']
 function github_exchange_code($code) {
-    if (!defined('CLIENT_ID') || CLIENT_ID === '') return null;
+    if (!defined('CLIENT_ID') || CLIENT_ID === '') {
+        return ['error' => 'config', 'description' => 'CLIENT_ID is not defined in _config.php', 'raw' => null];
+    }
+    if (!defined('CLIENT_SECRET') || CLIENT_SECRET === '') {
+        return ['error' => 'config', 'description' => 'CLIENT_SECRET is not defined in _config.php', 'raw' => null];
+    }
+
+    $redirect_uri = CALLBACK_URL ?: (current_url_base() . '/callback');
 
     $post = http_build_query([
         'client_id'     => CLIENT_ID,
         'client_secret' => CLIENT_SECRET,
         'code'          => $code,
-        'redirect_uri'  => CALLBACK_URL ?: current_url_base() . '/callback',
+        'redirect_uri'  => $redirect_uri,
     ]);
+
     $opts = [
         'http' => [
-            'method'  => 'POST',
-            'header'  => "Accept: application/json\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: " . strlen($post) . "\r\n",
-            'content' => $post,
-            'timeout' => 10,
+            'method'        => 'POST',
+            'header'        => "Accept: application/json\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: " . strlen($post) . "\r\n",
+            'content'       => $post,
+            'timeout'       => 15,
+            'ignore_errors' => true,
         ],
+        'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
     ];
+
     $res = @file_get_contents('https://github.com/login/oauth/access_token', false, stream_context_create($opts));
-    if ($res === false) return null;
+    if ($res === false) {
+        $last = error_get_last();
+        $msg = $last['message'] ?? 'unknown network error';
+        api_log('oauth.exchange.fail', ['reason' => 'network', 'msg' => $msg, 'redirect_uri' => $redirect_uri]);
+        return ['error' => 'network', 'description' => 'Cannot reach github.com: ' . $msg, 'raw' => null];
+    }
+
     $json = json_decode($res, true);
-    return $json['access_token'] ?? null;
+    if ($json === null) {
+        api_log('oauth.exchange.fail', ['reason' => 'bad_json', 'raw' => $res, 'redirect_uri' => $redirect_uri]);
+        return ['error' => 'bad_response', 'description' => 'GitHub returned a non-JSON response', 'raw' => $res];
+    }
+
+    if (!empty($json['error'])) {
+        api_log('oauth.exchange.fail', [
+            'reason'       => $json['error'],
+            'description'  => $json['error_description'] ?? null,
+            'redirect_uri' => $redirect_uri,
+        ]);
+        return [
+            'error'       => $json['error'],
+            'description' => $json['error_description'] ?? 'GitHub rejected the token exchange',
+            'raw'         => null,
+        ];
+    }
+
+    if (empty($json['access_token'])) {
+        api_log('oauth.exchange.fail', ['reason' => 'no_token', 'raw' => $res, 'redirect_uri' => $redirect_uri]);
+        return ['error' => 'no_token', 'description' => 'GitHub did not return an access_token', 'raw' => $res];
+    }
+
+    return ['token' => $json['access_token']];
 }
 
 function github_get_user($token) {
@@ -679,7 +720,7 @@ function mod_for_public($mod) {
     return $out;
 }
 
-// [PATCH] Кэш upstream на 5 минут (кроме override через X-Upstream-Url)
+// [PATCH] upstream cache for 5 minutes (unless overridden via X-Upstream-Url)
 function fetch_upstream_json($path, $query = [], $ttl = UPSTREAM_CACHE_TTL) {
     $base = defined('UPSTREAM_URL') ? UPSTREAM_URL : 'https://api.geode-sdk.org';
     $url = $base . '/' . ltrim($path, '/');
@@ -847,23 +888,52 @@ function api_login_github_web() { return api_login_github(); }
 
 function api_login_callback() {
     $body = json_input() ?: $_REQUEST;
-    if (empty($body['code']) || empty($body['state'])) return json_response(['error' => 'bad request', 'payload' => null], 400);
 
-    if (!isset($_SESSION['oauth_state']) || $_SESSION['oauth_state'] !== $body['state']) {
-        return json_response(['error' => 'invalid state', 'payload' => null], 400);
+    if (empty($body['code']) || empty($body['state'])) {
+        return render_oauth_error(
+            'Bad request',
+            'The callback did not contain the "code" or "state" parameter.',
+            ['query' => $_GET, 'request_keys' => array_keys($_REQUEST)]
+        );
     }
-    $token = github_exchange_code($body['code']);
-    if (!$token) return json_response(['error' => 'failed to obtain access token', 'payload' => null], 400);
+
+    if (!isset($_SESSION['oauth_state']) || !hash_equals($_SESSION['oauth_state'], (string)$body['state'])) {
+        return render_oauth_error(
+            'Invalid state',
+            'The CSRF state does not match. The authorization flow may have been started in another browser tab or the session expired.',
+            ['sent_state' => $body['state'], 'session_state_present' => isset($_SESSION['oauth_state'])]
+        );
+    }
+
+    // Code is single-use — drop the state now to avoid bad_verification_code on resubmit
+    unset($_SESSION['oauth_state']);
+
+    $ex = github_exchange_code($body['code']);
+    if (isset($ex['error'])) {
+        return render_oauth_error('Failed to obtain access token', $ex['description'], [
+            'github_error' => $ex['error'],
+            'redirect_uri' => CALLBACK_URL ?: (current_url_base() . '/callback'),
+            'raw'          => $ex['raw'] ?? null,
+        ]);
+    }
+    $token = $ex['token'];
 
     $user = github_get_user($token);
-    if (!$user || empty($user['login'])) return json_response(['error' => 'failed to fetch GitHub user', 'payload' => null], 400);
+    if (!$user || empty($user['login'])) {
+        return render_oauth_error(
+            'Failed to fetch GitHub user',
+            'The token exchange succeeded but the request to api.github.com/user failed. Possibly a rate limit or network issue.',
+            ['token_present' => true]
+        );
+    }
 
-    $_SESSION['github_user'] = $user['login'];
+    $_SESSION['github_user']  = $user['login'];
     $_SESSION['github_token'] = $token;
     ensure_developer_record($user['login'], $user['name'] ?? $user['login']);
     $local = issue_local_tokens_for_user($user['login']);
     api_log('login.callback', ['user' => $user['login']]);
-    json_response(['error' => '', 'payload' => $local]);
+
+    render_oauth_success($user['login'], $local);
 }
 
 function api_login_github_poll() {
@@ -1347,7 +1417,7 @@ function api_mods_updates() {
     $q = $_GET;
     if (empty($q['ids'])) return json_response(['error' => 'bad request - ids required', 'payload' => null], 400);
 
-    // [PATCH] ограничим размер входного списка
+    // [PATCH] cap input size
     $raw = (string)$q['ids'];
     if (strlen($raw) > 20000) return json_response(['error' => 'ids too long', 'payload' => null], 400);
 
@@ -1714,7 +1784,7 @@ function api_mod_versions_download($modid, $version) {
 
             $local_link = !empty($v['download_link']) ? $v['download_link'] : null;
 
-            // Сначала резолвим ссылку, только потом инкрементим счётчик — иначе накрутка.
+            // Resolve first, bump counter only after — prevents inflation.
             if ($local_link) {
                 $res = resolve_final_url($local_link);
                 if (!empty($res['url']) && $res['code'] !== null && $res['code'] >= 200 && $res['code'] < 400) {
@@ -1760,7 +1830,7 @@ function api_mod_versions_download($modid, $version) {
 /* ======================= API: stats ======================= */
 
 function api_stats() {
-    // stats меняется часто (счётчики), но 30-секундный etag всё равно полезен
+    // stats changes often (counters), but a 30s etag is still useful
     json_response_etag(['error' => '', 'payload' => api_stats_payload()], 200, 30);
 }
 
@@ -1768,8 +1838,7 @@ function api_stats() {
 
 function handle_home() { header('Location: /ui'); exit; }
 
-// [PATCH] теперь шлёт X-CSRF-Token и не пытается перезагружать страницу
-// при ошибке, если это не нужно.
+// [PATCH] now sends X-CSRF-Token and doesn't try to reload on error unless needed.
 function asAPIReqForm($selector = 'form') {
     $selector_json = json_encode($selector);
     $csrf_json = json_encode(CSRF_TOKEN);
@@ -1919,6 +1988,110 @@ function ui_footer() {
 </body>
 </html>
     <?php
+}
+
+/* ======================= OAuth result pages ======================= */
+
+function render_oauth_error($title, $description, array $details = []) {
+    http_response_code(400);
+
+    $e = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
+    $title_e = $e($title);
+    $desc_e  = $e($description);
+
+    // Targeted hints per GitHub error code
+    $hint_map = [
+        'redirect_uri_mismatch'        => 'The Callback URL in your GitHub OAuth App does not match the one the site sends. Compare them byte-for-byte: scheme (http/https), domain, port and path.',
+        'bad_verification_code'        => 'The authorization code was already used or has expired. Start the login flow again — do not reload /callback.',
+        'incorrect_client_credentials' => 'CLIENT_ID or CLIENT_SECRET in _config.php is wrong.',
+        'application_suspended'        => 'The OAuth App has been suspended on GitHub.',
+        'network'                      => 'The server could not reach github.com. Check allow_url_fopen, DNS and SSL certificates.',
+    ];
+    $gerr = $details['github_error'] ?? '';
+    $hint = $gerr && isset($hint_map[$gerr]) ? $hint_map[$gerr] : '';
+
+    ui_header('OAuth error · Open Geode Index', 'Authorization failed');
+    ?>
+    <div class="row justify-content-center">
+      <div class="col-lg-8">
+        <div class="alert alert-danger d-flex align-items-start gap-2">
+          <i class="bi bi-exclamation-triangle-fill fs-4"></i>
+          <div>
+            <h3 class="alert-heading mb-1"><?=$title_e?></h3>
+            <div><?=$desc_e?></div>
+          </div>
+        </div>
+
+        <?php if ($hint): ?>
+          <div class="alert alert-warning">
+            <strong>What to do:</strong> <?=$e($hint)?>
+          </div>
+        <?php endif; ?>
+
+        <div class="card mb-3">
+          <div class="card-header">Technical details</div>
+          <div class="card-body">
+            <table class="table table-sm table-borderless mb-0">
+              <tbody>
+                <?php foreach ($details as $k => $v): ?>
+                  <?php if ($v === null) continue; ?>
+                  <tr>
+                    <th class="text-secondary" style="width:180px;"><?=$e($k)?></th>
+                    <td><code style="white-space:pre-wrap;word-break:break-all;"><?=$e(is_array($v) ? json_encode($v, JSON_UNESCAPED_SLASHES|JSON_PRETTY_PRINT) : (string)$v)?></code></td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="d-flex gap-2">
+          <a href="/login" class="btn btn-primary"><i class="bi bi-github"></i> Try signing in again</a>
+          <a href="/ui" class="btn btn-outline-secondary">Back to home</a>
+          <button class="btn btn-outline-secondary" onclick="navigator.clipboard && navigator.clipboard.writeText(document.querySelector('.card-body code')?.innerText || '').then(()=>this.innerText='Copied!')">Copy details</button>
+        </div>
+      </div>
+    </div>
+    <?php
+    ui_footer();
+    exit;
+}
+
+function render_oauth_success($username, array $tokens) {
+    $e = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
+    ui_header('Login successful · Open Geode Index', 'You are signed in');
+    ?>
+    <div class="row justify-content-center">
+      <div class="col-lg-7">
+        <div class="alert alert-success d-flex align-items-center gap-2">
+          <i class="bi bi-check-circle-fill fs-4"></i>
+          <div><strong>Signed in as <a href="https://github.com/<?=$e($username)?>" target="_blank"><?=$e($username)?></a></strong></div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header">Access tokens (save these if you use the API)</div>
+          <div class="card-body">
+            <label class="form-label small text-secondary mb-1">Access token</label>
+            <div class="input-group mb-2">
+              <input class="form-control" readonly value="<?=$e($tokens['access_token'])?>">
+            </div>
+            <label class="form-label small text-secondary mb-1">Refresh token</label>
+            <div class="input-group mb-2">
+              <input class="form-control" readonly value="<?=$e($tokens['refresh_token'])?>">
+            </div>
+            <div class="form-text">Access token lives 7 days, refresh token 30 days. They are already bound to your session in this browser.</div>
+          </div>
+        </div>
+
+        <div class="d-flex gap-2">
+          <a href="/ui" class="btn btn-primary">Go to catalog</a>
+          <a href="/v1/me" class="btn btn-outline-secondary">Check /v1/me</a>
+        </div>
+      </div>
+    </div>
+    <?php
+    ui_footer();
+    exit;
 }
 
 function render_ui() {
@@ -2397,390 +2570,167 @@ function render_mod_page($id) {
       onsubmit="event.preventDefault();if(!confirm('Delete <?=htmlspecialchars($mod['id'])?>?\nAction can\'t be undone...')) return;fetch(this.action, {method:'POST', body:new FormData(this), headers:{'X-CSRF-Token': window.__CSRF__}}).then(() => {history.back(); setTimeout(()=>location.reload(), 200)});">
             <input type="hidden" name="_method" value="DELETE">
             <input type="hidden" name="csrf" value="<?=htmlspecialchars(CSRF_TOKEN, ENT_QUOTES)?>">
-            <button type="submit" class="w-100 btn btn-sm btn-outline-danger">Delete mod</button>
-          </form>
-        </div>
-      </div>
-    <?php endif; ?>
-
-    <?php if (is_admin()): ?>
-      <div class="card">
-        <div class="card-body">
-          <form method="post" action="/ui/admin">
-            <input type="hidden" name="csrf" value="<?=htmlspecialchars(CSRF_TOKEN, ENT_QUOTES)?>">
-            <input type="hidden" name="action" value="toggle_featured">
-            <input type="hidden" name="modid" value="<?=htmlspecialchars($mod['id'])?>">
-            <select name="featured" class="form-select form-select-sm my-1">
-                <option value="0" <?=empty($mod['featured']) ? 'selected' : ''?>>Featured: No</option>
-                <option value="1" <?=!empty($mod['featured']) ? 'selected' : ''?>>Featured: Yes</option>
-            </select>
-            <button class="w-100 btn btn-sm btn-outline-danger">Apply</button>
+            <button class="w-100 btn btn-danger btn-sm">Delete mod</button>
           </form>
         </div>
       </div>
     <?php endif; ?>
   </div>
-
-  <?php if (!empty($mod['repository'])): ?>
-    <span class="w-100 text-center small">Repository: <a href="<?=htmlspecialchars($mod['repository'])?>" target="_blank"><?=htmlspecialchars($mod['repository'])?></a></span>
-  <?php endif; ?>
 </div>
-<?php
+    <?php
     ui_footer();
 }
 
 function render_devs() {
-    $developers = db_read('developers.json') ?: [];
-    $user = current_user();
-    ui_header('Users - Open Geode Index', "List of developers that logined once.");
+    $stats = api_stats_payload();
+    ui_header('Users - Open Geode Index');
     ?>
-    <div class="row px-3" style="justify-content: space-around; align-items: center; align-items: stretch; display: flex;">
-      <?php if (empty($developers)): ?>
-        <div class="col-12"><div class="alert alert-danger">But nobody came.</div></div>
-      <?php else: foreach ($developers as $dev): ?>
-        <div style="text-align: center; <?php if (($dev['username'] ?? null) === $user): ?> order: -1; <?php endif; ?>" class="col-sm-4 col-lg-2 p-2">
-          <div class="card h-100 pt-3 <?php if (($dev['username'] ?? null) === $user): ?> bg-gradient <?php endif; ?>">
-            <img class="card-img-top" src="https://github.com/<?=htmlspecialchars($dev['username'])?>.png" alt="Avatar..." style="object-fit:scale-down;height:140px;" onerror="this.style.opacity='0.5'; this.style.backdropFilter='brightness(0.5)'; this.style.borderStyle='outset'; this.style.borderWidth='3px 3px';">
-            <div class="card-body d-flex flex-column">
-              <h5 class="card-title mb-1">
-                <a target="_blank" href="https://github.com/<?=htmlspecialchars($dev['username'])?>" class="link-body-emphasis link-offset-2 link-underline-opacity-25 link-underline-opacity-75-hover"><?=htmlspecialchars($dev['display_name'])?></a>
-              </h5>
-              <p class="card-text text-muted"><?=htmlspecialchars($dev['username'])?></p>
-            </div>
-          </div>
-        </div>
-      <?php endforeach; endif; ?>
+    <h3>Users</h3>
+    <hr>
+    <p class="text-muted">Total registered users: <b><?=htmlspecialchars($stats['total_registered_developers'] ?? 0)?></b></p>
+    <div id="devs-list" class="row g-2">
+      <div class="skeleton-card" style="height:60px;"></div>
     </div>
-<?php
+    <script>
+    (async function() {
+        const el = document.getElementById('devs-list');
+        try {
+            const r = await fetch('/v1/developers?per_page=200');
+            const d = await r.json();
+            const data = d.payload?.data || [];
+            if (!data.length) { el.innerHTML = '<div class="alert alert-secondary">No users yet.</div>'; return; }
+            el.innerHTML = data.map(x => `
+              <div class="col-md-4">
+                <div class="card p-2 d-flex flex-row align-items-center gap-2">
+                  <img src="https://github.com/${encodeURIComponent(x.username)}.png" style="width:40px;height:40px;border-radius:4px;" alt="">
+                  <div>
+                    <div><b>${(x.display_name || x.username).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}</b></div>
+                    <div class="small text-secondary">@${x.username.replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}${x.verified ? ' <span class="badge text-bg-info">verified</span>' : ''}${x.admin ? ' <span class="badge text-bg-danger">admin</span>' : ''}</div>
+                  </div>
+                </div>
+              </div>`).join('');
+        } catch(e) { el.innerHTML = '<div class="alert alert-danger">Failed to load users.</div>'; }
+    })();
+    </script>
+    <?php
     ui_footer();
 }
 
 function render_install() {
-    $user = current_user();
-    ui_header('Installing Open Geode Index...', "Info about installing our proxy mod for Geode Loader!");
+    ui_header('Installing Open Geode Index...');
     ?>
-<div class="row">
-    <div class="col-md-6 fs-5">
-        <?=md('
-<h3>How to install the mod:</h3>
-
-- Download latest version of mod: <a class="btn btn-primary btn-sm" href="https://github.com/lil2kki/Open-Geode-Index/releases/latest/download/lil2kki.open-geode-index.geode">lil2kki.open-geode-index.geode</a>
-- Open Geode Loader Settings
-- Click the "Install From File" button
-- Select downloaded file and confirm
-        ')?>
-    </div>
-    <div class="col-md-6"><img style="max-width: 100%;" alt="image" src="https://github.com/user-attachments/assets/dc4987df-b2fa-430f-8610-66bf4ce64862"/></div>
-</div>
-<?php
+    <h3>How to install</h3>
+    <hr>
+    <p>Open Geode Index is used as a mirror/proxy for the Geode mod loader. To use it:</p>
+    <ol>
+      <li>Install the <a href="https://github.com/lil2kki/Open-Geode-Index#how-to-install" target="_blank">proxy mod</a> for Geode Loader.</li>
+      <li>In Geode settings, set the mod source to this site's URL.</li>
+      <li>Restart Geode. Mods should now be listed here.</li>
+    </ol>
+    <p>Alternatively, use the API directly. See <a href="/developers">developers</a> page and <a href="/health">/health</a>.</p>
+    <?php
     ui_footer();
 }
 
+function handle_login() {
+    // Browser-side: redirect to GitHub OAuth
+    if (empty(CLIENT_ID)) {
+        render_oauth_error('Configuration error', 'CLIENT_ID is not defined in _config.php', ['file' => '_config.php']);
+        return;
+    }
+    $state = bin2hex(random_bytes(12));
+    $_SESSION['oauth_state'] = $state;
+    $redirect = CALLBACK_URL ?: current_url_base() . '/callback';
+    $params = http_build_query(['client_id' => CLIENT_ID, 'redirect_uri' => $redirect, 'scope' => 'read:user', 'state' => $state]);
+    header('Location: https://github.com/login/oauth/authorize?' . $params);
+    exit;
+}
+
+function handle_callback() {
+    // GET callback from GitHub — same as POST API but with GET params
+    api_login_callback();
+}
+
+function handle_logout() {
+    $_SESSION = [];
+    if (ini_get('session.use_cookies')) {
+        $p = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'], $p['secure'], $p['httponly']);
+    }
+    session_destroy();
+    header('Location: /ui');
+    exit;
+}
+
 function render_admin_page() {
-    if (!is_admin()) { http_response_code(403); echo "<h1>Forbidden</h1><p>Admin only</p>"; exit; }
-
-    $tab = $_GET['tab'] ?? 'mods';
-    ui_header('Admin - Open Geode Index');
-    $mods = db_read('mods.json') ?: [];
-    $devs = db_read('developers.json') ?: [];
-    $loader_versions = db_read('loader_versions.json') ?: [];
-    $tags = db_read('tags.json') ?: [];
-    $deprec = db_read('deprecations.json') ?: [];
+    if (!is_admin()) { http_response_code(403); echo '<h1>403 Forbidden</h1>'; exit; }
     $stats = api_stats_payload();
-    $csrf = htmlspecialchars(CSRF_TOKEN, ENT_QUOTES);
+    $mods = db_read('mods.json') ?: [];
+    ui_header('Admin - Open Geode Index');
     ?>
-<div class="row">
-  <div class="col-12">
-    <h2 class="h4">Admin panel</h2>
-    <?php if (!empty($_SESSION['flash'])) { echo '<div class="alert alert-info">'.htmlspecialchars($_SESSION['flash']).'</div>'; unset($_SESSION['flash']); } ?>
-    <ul class="nav nav-underline mb-3">
-      <li class="nav-item"><a class="nav-link <?= $tab==='mods' ? 'active' : ''?>" href="/ui/admin?tab=mods">Mods</a></li>
-      <li class="nav-item"><a class="nav-link <?= $tab==='loader' ? 'active' : ''?>" href="/ui/admin?tab=loader">Loader Versions</a></li>
-      <li class="nav-item"><a class="nav-link <?= $tab==='developers' ? 'active' : ''?>" href="/ui/admin?tab=developers">Developers</a></li>
-      <li class="nav-item"><a class="nav-link <?= $tab==='tags' ? 'active' : ''?>" href="/ui/admin?tab=tags">Tags</a></li>
-      <li class="nav-item"><a class="nav-link <?= $tab==='deprecations' ? 'active' : ''?>" href="/ui/admin?tab=deprecations">Deprecations</a></li>
-      <li class="nav-item"><a class="nav-link <?= $tab==='stats' ? 'active' : ''?>" href="/ui/admin?tab=stats">Stats</a></li>
-      <li class="nav-item"><a class="nav-link <?= $tab==='tokens' ? 'active' : ''?>" href="/ui/admin?tab=tokens">Tokens</a></li>
-    </ul>
-
-    <?php if ($tab === 'mods'): ?>
-      <h5>Mods</h5>
-      <table class="table table-sm"><thead><tr><th>ID</th><th>Versions</th><th>Repo</th><th>Tags</th><th>Featured</th><th></th></tr></thead>
+    <h3>Admin panel</h3>
+    <hr>
+    <div class="row g-3">
+      <div class="col-md-4"><div class="card p-3"><div class="text-secondary small">Total mods</div><div class="fs-3"><?=htmlspecialchars($stats['total_mod_count'] ?? 0)?></div></div></div>
+      <div class="col-md-4"><div class="card p-3"><div class="text-secondary small">Developers</div><div class="fs-3"><?=htmlspecialchars($stats['total_registered_developers'] ?? 0)?></div></div></div>
+      <div class="col-md-4"><div class="card p-3"><div class="text-secondary small">Featured</div><div class="fs-3"><?=htmlspecialchars($stats['featured_count'] ?? 0)?></div></div></div>
+    </div>
+    <h4 class="mt-4">Mods</h4>
+    <div class="table-responsive">
+      <table class="table table-sm table-striped align-middle">
+        <thead><tr><th>ID</th><th>Name</th><th>Versions</th><th>Downloads</th><th>Featured</th><th></th></tr></thead>
         <tbody>
         <?php foreach ($mods as $m): ?>
           <tr>
-            <td><?=htmlspecialchars($m['id'])?></td>
-            <td><?=count($m['versions'])?></td>
-            <td><?=htmlspecialchars($m['repo'] ?? '')?></td>
-            <td><?=htmlspecialchars(implode(', ', $m['tags'] ?? []))?></td>
+            <td><a href="/ui/mod/<?=urlencode($m['id'])?>"><?=htmlspecialchars($m['id'])?></a></td>
+            <td><?=htmlspecialchars($m['versions'][0]['name'] ?? '')?></td>
+            <td><?=count($m['versions'] ?? [])?></td>
+            <td><?=htmlspecialchars($m['download_count'] ?? 0)?></td>
             <td><?=!empty($m['featured']) ? 'yes' : 'no'?></td>
-            <td><a class="btn btn-sm btn-outline-primary" href="/ui/mod/<?=urlencode($m['id'])?>">View</a></td>
+            <td>
+              <form method="post" action="/ui/admin" class="d-inline">
+                <input type="hidden" name="csrf" value="<?=htmlspecialchars(CSRF_TOKEN, ENT_QUOTES)?>">
+                <input type="hidden" name="mod_id" value="<?=htmlspecialchars($m['id'])?>">
+                <input type="hidden" name="action" value="toggle_featured">
+                <button class="btn btn-sm btn-outline-secondary">Toggle featured</button>
+              </form>
+            </td>
           </tr>
         <?php endforeach; ?>
         </tbody>
       </table>
-
-    <?php elseif ($tab === 'loader'): ?>
-      <h5>Create Loader Version</h5>
-      <form method="post" action="/ui/admin">
-        <input type="hidden" name="csrf" value="<?=$csrf?>">
-        <input type="hidden" name="action" value="create_loader_version">
-        <div class="form-row">
-          <div class="form-group col-md-4"><label>Tag</label><input name="tag" class="form-control" required></div>
-          <div class="form-group col-md-4"><label>Commit hash</label><input name="commit_hash" class="form-control" required></div>
-          <div class="form-group col-md-4"><label>GD (json or k:v,comma)</label><input name="gd" class="form-control"></div>
-        </div>
-        <button class="btn btn-primary">Create version</button>
-      </form>
-      <h5 class="mt-4">Existing loader versions</h5>
-      <table class="table table-sm"><thead><tr><th>Tag</th><th>GD</th><th>Commit</th><th>Created</th></tr></thead><tbody>
-        <?php foreach ($loader_versions as $lv): ?>
-          <tr><td><?=htmlspecialchars($lv['tag'])?></td><td><?=htmlspecialchars(json_encode($lv['gd']))?></td><td><?=htmlspecialchars($lv['commit_hash'] ?? '')?></td><td><?=htmlspecialchars($lv['created_at'] ?? '')?></td></tr>
-        <?php endforeach; ?></tbody></table>
-
-    <?php elseif ($tab === 'developers'): ?>
-      <h5>Developers</h5>
-      <table class="table table-sm"><thead><tr><th>ID</th><th>Username</th><th>Display</th><th>Verified</th><th>Admin</th><th>Actions</th></tr></thead><tbody>
-        <?php foreach ($devs as $d): ?>
-          <tr>
-            <td><?=htmlspecialchars($d['id'])?></td>
-            <td><a target="_blank" href="https://github.com/<?=htmlspecialchars($d['username'])?>"><?=htmlspecialchars($d['username'])?></a></td>
-            <td><?=htmlspecialchars($d['display_name'])?></td>
-            <td><?=!empty($d['verified']) ? 'yes' : 'no'?></td>
-            <td><?=!empty($d['admin']) ? 'yes' : 'no'?></td>
-            <td>
-              <form method="post" action="/ui/admin" style="display:inline-block">
-                <input type="hidden" name="csrf" value="<?=$csrf?>">
-                <input type="hidden" name="action" value="update_developer">
-                <input type="hidden" name="developer_id" value="<?=htmlspecialchars($d['id'])?>">
-                <select name="admin" class="form-control form-control-sm d-inline-block" style="width:auto">
-                  <option value="0" <?=empty($d['admin']) ? 'selected':''?>>No</option>
-                  <option value="1" <?=!empty($d['admin']) ? 'selected':''?>>Yes</option>
-                </select>
-                <select name="verified" class="form-control form-control-sm d-inline-block" style="width:auto">
-                  <option value="0" <?=empty($d['verified']) ? 'selected':''?>>No</option>
-                  <option value="1" <?=!empty($d['verified']) ? 'selected':''?>>Yes</option>
-                </select>
-                <button class="btn btn-sm btn-outline-primary">Update</button>
-              </form>
-            </td>
-          </tr>
-        <?php endforeach; ?></tbody></table>
-
-    <?php elseif ($tab === 'tags'): ?>
-      <h5>Tags</h5>
-      <form method="post" action="/ui/admin" class="form-inline mb-3">
-        <input type="hidden" name="csrf" value="<?=$csrf?>">
-        <input type="hidden" name="action" value="create_tag">
-        <input name="tag_name" class="form-control mr-2" placeholder="tag name">
-        <button class="btn btn-primary">Add tag</button>
-      </form>
-      <ul><?php foreach ($tags as $t) echo '<li>'.htmlspecialchars(is_array($t)&&isset($t['name'])?$t['name']:(string)$t).'</li>'; ?></ul>
-
-    <?php elseif ($tab === 'deprecations'): ?>
-      <h5>Deprecations</h5>
-      <form method="post" action="/ui/admin" class="mb-3">
-        <input type="hidden" name="csrf" value="<?=$csrf?>">
-        <input type="hidden" name="action" value="create_deprecation">
-        <div class="form-row">
-          <div class="form-group col-md-3"><label>Mod ID</label><input name="modid" class="form-control"></div>
-          <div class="form-group col-md-4"><label>By (comma)</label><input name="by" class="form-control"></div>
-          <div class="form-group col-md-5"><label>Reason</label><input name="reason" class="form-control"></div>
-        </div>
-        <button class="btn btn-primary">Create</button>
-      </form>
-      <table class="table table-sm"><thead><tr><th>Mod</th><th>By</th><th>Reason</th><th>Actions</th></tr></thead><tbody>
-        <?php foreach ($deprec as $d): ?>
-          <tr><td><?=htmlspecialchars($d['mod_id'])?></td><td><?=htmlspecialchars(implode(', ', (array)$d['by']))?></td><td><?=htmlspecialchars($d['reason'])?></td>
-            <td><form method="post" action="/ui/admin"><input type="hidden" name="csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="delete_deprecation"><input type="hidden" name="modid" value="<?=htmlspecialchars($d['mod_id'])?>"><input type="hidden" name="depid" value="<?=htmlspecialchars($d['id'])?>"><button class="btn btn-sm btn-danger">Delete</button></form></td></tr>
-        <?php endforeach; ?></tbody></table>
-
-    <?php elseif ($tab === 'stats'): ?>
-      <h5>Stats</h5>
-      <dl class="row">
-        <dt class="col-sm-4">Total geode downloads</dt><dd class="col-sm-8"><?=htmlspecialchars($stats['total_geode_downloads'] ?? 0)?></dd>
-        <dt class="col-sm-4">Total mod count</dt><dd class="col-sm-8"><?=htmlspecialchars($stats['total_mod_count'] ?? 0)?></dd>
-        <dt class="col-sm-4">Total mod downloads</dt><dd class="col-sm-8"><?=htmlspecialchars($stats['total_mod_downloads'] ?? 0)?></dd>
-        <dt class="col-sm-4">Total registered developers</dt><dd class="col-sm-8"><?=htmlspecialchars($stats['total_registered_developers'] ?? 0)?></dd>
-      </dl>
-
-    <?php elseif ($tab === 'tokens'): ?>
-      <h5>Your tokens</h5>
-      <?php $tokens = db_read('tokens.json') ?: []; $current = current_user(); ?>
-      <table class="table table-sm"><thead><tr><th>Access token</th><th>Expires at</th><th>Refresh token</th><th>Refresh expires</th><th>Action</th></tr></thead><tbody>
-        <?php foreach ($tokens as $k => $meta) {
-          if (($meta['username'] ?? null) === $current) {
-            echo '<tr><td>'.htmlspecialchars($k).'</td><td>'.htmlspecialchars($meta['expires_at'] ?? '').'</td><td>'.htmlspecialchars($meta['refresh_token'] ?? '').'</td><td>'.htmlspecialchars($meta['refresh_expires_at'] ?? '').'</td><td><form method="post" action="/ui/admin"><input type="hidden" name="csrf" value="'.$csrf.'"><input type="hidden" name="action" value="revoke_token"><input type="hidden" name="token" value="'.htmlspecialchars($k).'"><button class="btn btn-sm btn-danger">Revoke</button></form></td></tr>';
-          }
-        } ?>
-      </tbody></table>
-    <?php endif; ?>
-  </div>
-</div>
-<?php
+    </div>
+    <?php
     ui_footer();
+}
+
+function handle_admin_form() {
+    if (!is_admin()) { http_response_code(403); echo '<h1>403 Forbidden</h1>'; exit; }
+    csrf_check_if_session();
+    $action = $_POST['action'] ?? '';
+    if ($action === 'toggle_featured') {
+        $id = $_POST['mod_id'] ?? '';
+        $mods = db_read('mods.json') ?: [];
+        foreach ($mods as $i => $m) {
+            if ($m['id'] === $id) {
+                $mods[$i]['featured'] = empty($m['featured']);
+                db_write('mods.json', $mods);
+                break;
+            }
+        }
+    }
+    header('Location: /ui/admin');
+    exit;
 }
 
 function api_stats_payload() {
     $mods = db_read('mods.json') ?: [];
     $devs = db_read('developers.json') ?: [];
-    $total_mod_downloads = 0;
-    foreach ($mods as $m) $total_mod_downloads += ($m['download_count'] ?? 0);
+    $featured = 0;
+    foreach ($mods as $m) if (!empty($m['featured'])) $featured++;
     return [
-        'total_geode_downloads'       => 0,
-        'total_mod_count'             => count($mods),
-        'total_mod_downloads'         => $total_mod_downloads,
+        'total_mod_count' => count($mods),
         'total_registered_developers' => count($devs),
+        'featured_count' => $featured,
     ];
 }
-
-/* ======================= Admin UI form handler ======================= */
-
-function handle_admin_form() {
-    if (!is_admin()) { http_response_code(403); echo "<h1>Forbidden</h1><p>Admin only</p>"; exit; }
-
-    // [PATCH] CSRF для admin-форм
-    if (!hash_equals(CSRF_TOKEN, (string)($_POST['csrf'] ?? ''))) {
-        http_response_code(403);
-        echo "<h1>403 CSRF</h1>";
-        exit;
-    }
-
-    $action = $_POST['action'] ?? '';
-
-    if ($action === 'toggle_featured') {
-        $modid = $_POST['modid'] ?? null;
-        $featured = !empty($_POST['featured']);
-        $mods = db_read('mods.json') ?: [];
-        foreach ($mods as $i => $m) {
-            if ($m['id'] === $modid) {
-                $mods[$i]['featured'] = $featured;
-                $mods[$i]['updated_at'] = iso8601_utc();
-                db_write('mods.json', $mods);
-                $_SESSION['flash'] = 'Mod updated';
-                header('Location: /ui/admin?tab=mods');
-                exit;
-            }
-        }
-        $_SESSION['flash'] = 'Mod not found';
-        header('Location: /ui/admin?tab=mods');
-        exit;
-    }
-
-    if ($action === 'create_loader_version') {
-        $tag = $_POST['tag'] ?? null;
-        $commit_hash = $_POST['commit_hash'] ?? null;
-        $gd = $_POST['gd'] ?? null;
-        if (!$tag || !$commit_hash || !$gd) {
-            $_SESSION['flash'] = 'Missing fields';
-            header('Location:/ui/admin?tab=loader');
-            exit;
-        }
-        $gd_parsed = json_decode($gd, true);
-        if ($gd_parsed === null) {
-            $parts = array_map('trim', explode(',', $gd));
-            $gd_parsed = [];
-            foreach ($parts as $p) if (strpos($p, ':') !== false) { list($k, $v) = array_map('trim', explode(':', $p, 2)); if ($k && $v) $gd_parsed[$k] = $v; }
-        }
-        $_POST = ['tag' => $tag, 'commit_hash' => $commit_hash, 'gd' => $gd_parsed];
-        return api_loader_versions_create();
-    }
-
-    if ($action === 'update_developer') {
-        $id = intval($_POST['developer_id'] ?? 0);
-        $body = [];
-        if (isset($_POST['admin']))    $body['admin'] = (bool)$_POST['admin'];
-        if (isset($_POST['verified'])) $body['verified'] = (bool)$_POST['verified'];
-        $_POST = $body;
-        return api_developers_update($id);
-    }
-
-    if ($action === 'create_tag') {
-        $name = trim($_POST['tag_name'] ?? '');
-        if ($name === '') { $_SESSION['flash'] = 'Tag name required'; header('Location:/ui/admin?tab=tags'); exit; }
-        $tags = db_read('tags.json') ?: [];
-        $tags[] = ['id' => time(), 'name' => $name, 'display_name' => $name, 'is_readonly' => false];
-        db_write('tags.json', $tags);
-        $_SESSION['flash'] = 'Tag created';
-        header('Location:/ui/admin?tab=tags');
-        exit;
-    }
-
-    if ($action === 'create_deprecation') {
-        $modid = $_POST['modid'] ?? '';
-        $by = isset($_POST['by']) ? array_map('trim', explode(',', $_POST['by'])) : [];
-        $reason = $_POST['reason'] ?? '';
-        $_POST = ['by' => $by, 'reason' => $reason];
-        return api_deprecations_create($modid);
-    }
-
-    if ($action === 'delete_deprecation') {
-        $modid = $_POST['modid'] ?? '';
-        $depid = intval($_POST['depid'] ?? 0);
-        return api_deprecations_delete($modid, $depid);
-    }
-
-    if ($action === 'revoke_token') {
-        $token = $_POST['token'] ?? '';
-        $tokens = db_read('tokens.json') ?: [];
-        if (isset($tokens[$token])) { unset($tokens[$token]); db_write('tokens.json', $tokens); $_SESSION['flash'] = 'Token revoked'; }
-        else $_SESSION['flash'] = 'Token not found';
-        header('Location: /ui/admin?tab=tokens');
-        exit;
-    }
-
-    $_SESSION['flash'] = 'Unknown admin action';
-    header('Location: /ui/admin');
-    exit;
-}
-
-/* ======================= WEB auth handlers ======================= */
-
-function handle_login() {
-    if (!defined('CLIENT_ID') || CLIENT_ID === '') {
-        echo "<h1>GitHub OAuth not configured</h1><p>Please set CLIENT_ID and CLIENT_SECRET in _config.php</p>";
-        exit;
-    }
-    $state = bin2hex(random_bytes(12));
-    $_SESSION['oauth_state'] = $state;
-    $params = http_build_query([
-        'client_id'    => CLIENT_ID,
-        'redirect_uri' => CALLBACK_URL ?: current_url_base() . '/callback',
-        'scope'        => 'read:user',
-        'state'        => $state,
-    ]);
-    header("Location: https://github.com/login/oauth/authorize?$params");
-    exit;
-}
-
-function handle_callback() {
-    if (isset($_GET['logout'])) {
-        session_destroy();
-        setcookie(SESSION_COOKIE, '', time() - 3600, '/');
-        header('Location: /ui');
-        exit;
-    }
-    if (!isset($_GET['code']) || !isset($_GET['state'])) { echo "Missing code or state"; exit; }
-    if (!isset($_SESSION['oauth_state']) || $_SESSION['oauth_state'] !== $_GET['state']) { echo "Invalid state"; exit; }
-
-    $token = github_exchange_code($_GET['code']);
-    if (!$token) { echo "Failed to obtain access token"; exit; }
-
-    $user = github_get_user($token);
-    if (!$user || !isset($user['login'])) { echo "Failed to fetch GitHub user"; exit; }
-
-    $_SESSION['github_user'] = $user['login'];
-    $_SESSION['github_token'] = $token;
-    ensure_developer_record($user['login'], $user['name'] ?? $user['login']);
-    header('Location: /ui');
-    exit;
-}
-
-function handle_logout() {
-    session_destroy();
-    setcookie(SESSION_COOKIE, '', time() - 3600, '/');
-    header('Location: /ui');
-    exit;
-}
-
-/* ======================= END OF FILE ======================= */
