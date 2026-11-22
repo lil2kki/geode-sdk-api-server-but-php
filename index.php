@@ -5,7 +5,6 @@ define('DATA_DIR', __DIR__ . '/data');
 define('SESSION_COOKIE', 'ogi_session');
 define('ACCESS_TOKEN_TTL', 60 * 60 * 24 * 7);
 define('REFRESH_TOKEN_TTL', 60 * 60 * 24 * 30);
-// [PATCH] Set DEBUG true only locally — enables pretty-print JSON and verbose errors
 define('DEBUG', false);
 define('MAX_UPLOAD_BYTES', 120 * 1024 * 1024);
 define('UPSTREAM_CACHE_TTL', 300);
@@ -2169,23 +2168,16 @@ function render_ui() {
                     </div>
                     <button class="w-100 btn btn-primary">Submit</button>
                 </form>
-                <script>
-                    (() => {
-                        const form = document.currentScript.previousElementSibling;
-                        const update = () => {
-                            const children = [...form.children];
-                            const contentHeight = children.reduce(
-                                (sum, el) => sum + el.getBoundingClientRect().height,
-                                0
-                            );
-                            const freeSpace = form.clientHeight - contentHeight;
-                            form.style.justifyContent = freeSpace > 80 ? 'flex-start' : 'flex-end';
-                        };
-                        new ResizeObserver(update).observe(form);
-                        new ResizeObserver(update).observe(form.parentElement);
-                        update();
-                    })();
-                </script>
+                <script>(() => {
+                    const update = () => {
+                        const children = [...form.children];
+                        const freeSpace = form.clientHeight - children.reduce((sum, el) => sum + el.getBoundingClientRect().height, 0);
+                        form.style.justifyContent = freeSpace > 80 ? 'flex-start' : 'flex-end';
+                    };
+                    new ResizeObserver(update).observe(document.currentScript.previousElementSibling);
+                    new ResizeObserver(update).observe(document.currentScript.previousElementSibling.parentElement);
+                    update();
+                })();</script>
                 <?=asAPIReqForm('#post-mod-form')?>
             <?php endif; ?>
         </div>
