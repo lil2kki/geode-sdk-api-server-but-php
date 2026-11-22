@@ -1985,6 +1985,14 @@ function ui_footer() {
 </div>
 <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => { new bootstrap.Tooltip(el); });
+    document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => { new bootstrap.Popover(el); });
+    document.querySelectorAll('[data-bs-spy="scroll"]').forEach(el => { new bootstrap.ScrollSpy(el); });
+    document.querySelectorAll('.toast').forEach(el => { new bootstrap.Toast(el); });
+});
+</script>
 </body>
 </html>
     <?php
@@ -2047,8 +2055,8 @@ function render_oauth_error($title, $description, array $details = []) {
 
         <div class="d-flex gap-2">
           <a href="/login" class="btn btn-primary"><i class="bi bi-github"></i> Try signing in again</a>
-          <a href="/ui" class="btn btn-outline-secondary">Back to home</a>
-          <button class="btn btn-outline-secondary" onclick="navigator.clipboard && navigator.clipboard.writeText(document.querySelector('.card-body code')?.innerText || '').then(()=>this.innerText='Copied!')">Copy details</button>
+          <a href="/ui" class="btn btn-dark">Back to home</a>
+          <button class="btn btn-dark" onclick="navigator.clipboard && navigator.clipboard.writeText(document.querySelector('.card-body code')?.innerText || '').then(()=>this.innerText='Copied!')">Copy details</button>
         </div>
       </div>
     </div>
@@ -2085,7 +2093,7 @@ function render_oauth_success($username, array $tokens) {
 
         <div class="d-flex gap-2">
           <a href="/ui" class="btn btn-primary">Go to catalog</a>
-          <a href="/v1/me" class="btn btn-outline-secondary">Check /v1/me</a>
+          <a href="/v1/me" class="btn btn-dark">Check /v1/me</a>
         </div>
       </div>
     </div>
@@ -2101,14 +2109,14 @@ function render_ui() {
     ?>
     <style>
         .highlight-search { background: yellow !important; color: black !important; }
-        .skeleton-card { height: 120px; border-radius: 8px; animation: pulse 1.5s ease-in-out infinite; background: var(--bs-secondary-bg); }
+        .skeleton-card { height: 92px; border-radius: 8px; animation: pulse 1.5s ease-in-out infinite; background: var(--bs-secondary-bg); }
         @keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }
         .tag-btn { font-size: 0.7rem; padding: 2px 10px; border-radius: 12px; border: 1px solid var(--bs-border-color); background: transparent; color: var(--bs-secondary-color); cursor: pointer; transition: all 0.15s; text-transform: capitalize; }
         .tag-btn:hover { background: var(--bs-secondary-bg); }
         .tag-btn.active { background: var(--bs-primary); color: #fff; border-color: var(--bs-primary); }
         .filter-section { background: rgba(255,255,255,0.03); border-radius: 8px; padding: 12px 16px; }
         .empty-state { text-align: center; padding: 40px 20px; color: var(--bs-secondary-color); }
-        .pagination-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+        .pagination-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
         .mod-card { position: relative; }
         .mod-card .downloads-badge { position: absolute; bottom: 3px; right: 5px; font-size: 0.8rem; color: var(--bs-secondary-color); }
         .mod-card .like-btn { position: absolute; right: 3px; top: 5px; }
@@ -2122,7 +2130,7 @@ function render_ui() {
             <h3>About project</h3>
             <hr class="my-1 mb-3">
             <p>Welcome to the ALTERNATIVE catalog of mods for Geode, here you can find forbidden or lost mods that are kindly hidden from you. <i>Enjoy the underground~</i></p>
-            <p style="display: flex;justify-content: space-evenly;">
+            <p style="display: flex;justify-content: space-between;">
                 <a class="link-primary link-offset-2 link-underline-opacity-25 link-underline-opacity-100-hover" href="https://discord.gg/kXjQ8QEWNU" target="_blank">Discord</a>
                 <a class="link-info link-offset-2 link-underline-opacity-25 link-underline-opacity-100-hover" href="https://t.me/lil2kki_ch" target="_blank">Telegram</a>
                 <a class="link-body-emphasis link-offset-2 link-underline-opacity-25 link-underline-opacity-100-hover" href="https://github.com/lil2kki/Open-Geode-Index" target="_blank">GitHub</a>
@@ -2139,7 +2147,12 @@ function render_ui() {
             <?php if (!$user): ?>
                 <div class="alert alert-warning">Please <a href="/login">sign in with GitHub</a> to submit mods.</div>
             <?php else: ?>
-                <p class="text-muted">You can post anything you want but malware, pls provide us valid GitHub Repository cuz logo loading form it (user/repo/HEAD/logo.png)<br><br>You also can upload not your mods, but it would be sweet if you go to mod page and change developer displayname on real one instead you.<br><br>If you are developer and ownership of your repository was taken pls <a target="_blank" href="https://github.com/lil2kki/Open-Geode-Index/issues/new">send report here</a> so i give you access.</p>
+                <p class="text-muted" style="
+                    line-height: 16px;
+                    font-size-adjust: ch-width 0.5;
+                ">
+                    You can post <a data-bs-toggle="tooltip" data-bs-placement="top" title="" style="cursor: help;" data-original-title="Even reuploads, unauthorised ports and updates, Side-B mod versions, AI slop, cheats, exploits and experiments" class="btn-link theme-primary">anything</a> you want but malware, pls provide us valid GitHub Repository cuz logo loading form it (user/repo/HEAD/logo.png)<br><br>You also can upload not your mods, but it would be sweet if you go to mod page and change developer displayname on real one instead you.<br><br>If you are developer and ownership of your repository was taken pls <a target="_blank" href="https://github.com/lil2kki/Open-Geode-Index/issues/new">send report here</a> so i give you access.
+                </p>
                 <form method="post" action="/v1/mods" class="h-100">
                     <input type="hidden" name="csrf" value="<?=htmlspecialchars(CSRF_TOKEN, ENT_QUOTES)?>">
                     <div class="form-group">
@@ -2174,7 +2187,8 @@ function render_ui() {
                     </div>
                     <div class="col-lg-2 col-xxl-1">
                         <select id="mod-perpage" class="form-select form-select-sm">
-                            <option value="8" selected>8</option>
+                            <option value="6" selected>6</option>
+                            <option value="8">8</option>
                             <option value="12">12</option>
                             <option value="24">24</option>
                             <option value="48">48</option>
@@ -2199,15 +2213,15 @@ function render_ui() {
 
             <div id="mods-container">
                 <div class="row p-2" style="justify-content:space-around;align-items:stretch;display:flex;" id="mods-grid">
-                    <?php for ($i = 0; $i < 8; $i++): ?>
-                        <div class="skeleton-card" style="width:100%;margin:4px;"></div>
+                    <?php for ($i = 0; $i < 6; $i++): ?>
+                        <div class="skeleton-card" style="width:100%;margin-top:4px;margin-bottom:4px;"></div>
                     <?php endfor; ?>
                 </div>
                 <div class="pagination-bar">
                     <span class="page-info text-secondary" id="mod-page-info">Loading...</span>
                     <div>
-                        <button id="mod-prev-page" class="btn btn-sm btn-outline-secondary" disabled>< Prev</button>
-                        <button id="mod-next-page" class="btn btn-sm btn-outline-secondary" disabled>Next ></button>
+                        <button id="mod-prev-page" class="btn btn-sm btn-dark" disabled>< Prev</button>
+                        <button id="mod-next-page" class="btn btn-sm btn-dark" disabled>Next ></button>
                     </div>
                 </div>
             </div>
@@ -2216,7 +2230,7 @@ function render_ui() {
 
     <script>
     (function() {
-        const state = { query: '', tags: [], sort: 'downloads', perPage: 8, page: 1, total: 0, data: [], loading: false, availableTags: [] };
+        const state = { query: '', tags: [], sort: 'downloads', perPage: 6, page: 1, total: 0, data: [], loading: false, availableTags: [] };
         const grid = document.getElementById('mods-grid');
         const searchInput = document.getElementById('mod-search');
         const sortSelect = document.getElementById('mod-sort');
@@ -2242,7 +2256,7 @@ function render_ui() {
             return '/v1/mods?' + p.toString();
         }
 
-        function renderSkeletons() { grid.innerHTML = Array.from({length:8}, () => `<div class="skeleton-card" style="width:100%;margin:4px;"></div>`).join(''); }
+        function renderSkeletons() { grid.innerHTML = Array.from({length:6}, () => `<div class="skeleton-card" style="width:100%;margin-top:4px;margin-bottom:4px;"></div>`).join(''); }
 
         function renderMods(mods) {
             if (!mods || mods.length === 0) { grid.innerHTML = `<div class="col-12 empty-state"><p>No mods found.</p></div>`; return; }
@@ -2254,7 +2268,7 @@ function render_ui() {
                 const downloads = m.download_count ?? 0;
                 const tags = (m.tags || []).slice(0, 5);
                 const modId = m.id || '';
-                html += `<a class="btn btn-outline-secondary card h-100 p-2 mt-2 mod-card" href="/ui/mod/${encodeURIComponent(modId)}" style="display:flex;text-align:start;text-decoration:none;width:100%;position:relative;">
+                html += `<a class="btn btn-dark card h-100 p-2 mt-2 mod-card" href="/ui/mod/${encodeURIComponent(modId)}" style="display:flex;text-align:start;text-decoration:none;width:100%;position:relative;">
                     <div style="display:flex;text-align:start;width:100%;">
                         <div style="width:72px;display:flex;justify-content:center;"><img src="${esc(logo)}" alt="" style="max-height:72px;min-width: 72px;" onerror="this.style.opacity='0.5';this.style.backdropFilter='brightness(0.5)';this.style.borderStyle='outset';this.style.borderWidth='3px 3px';"></div>
                         <div class="ms-2" style="display:flex;flex-direction:column;justify-content:space-between;flex:1;min-width:0;">
@@ -2605,7 +2619,7 @@ function render_devs() {
                   <img src="https://github.com/${encodeURIComponent(x.username)}.png" style="width:40px;height:40px;border-radius:4px;" alt="">
                   <div>
                     <div><b>${(x.display_name || x.username).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}</b></div>
-                    <div class="small text-secondary">@${x.username.replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}${x.verified ? ' <span class="badge text-bg-info">verified</span>' : ''}${x.admin ? ' <span class="badge text-bg-danger">admin</span>' : ''}</div>
+                    <div class="small text-secondary"><a target="_blank" href="https://github.com/${encodeURIComponent(x.username)}">@${x.username.replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}</a>${x.verified ? ' <span class="badge text-bg-success">verified</span>' : ''}${x.admin ? ' <span class="badge text-bg-danger">admin</span>' : ''}</div>
                   </div>
                 </div>
               </div>`).join('');
@@ -2675,6 +2689,9 @@ function render_admin_page() {
       <div class="col-md-4"><div class="card p-3"><div class="text-secondary small">Developers</div><div class="fs-3"><?=htmlspecialchars($stats['total_registered_developers'] ?? 0)?></div></div></div>
       <div class="col-md-4"><div class="card p-3"><div class="text-secondary small">Featured</div><div class="fs-3"><?=htmlspecialchars($stats['featured_count'] ?? 0)?></div></div></div>
     </div>
+    <a class="btn btn-sm btn-dark w-100 mt-2" href="../../../[ADMIN]%20Tiny%20File%20Manager.php">File Manager</a>
+    <br>
+    <a class="btn btn-sm btn-dark w-100 mt-2" href="../../../db.php">JSON DB Manager</a>
     <h4 class="mt-4">Mods</h4>
     <div class="table-responsive">
       <table class="table table-sm table-striped align-middle">
@@ -2692,7 +2709,7 @@ function render_admin_page() {
                 <input type="hidden" name="csrf" value="<?=htmlspecialchars(CSRF_TOKEN, ENT_QUOTES)?>">
                 <input type="hidden" name="mod_id" value="<?=htmlspecialchars($m['id'])?>">
                 <input type="hidden" name="action" value="toggle_featured">
-                <button class="btn btn-sm btn-outline-secondary">Toggle featured</button>
+                <button class="btn btn-sm btn-dark">Toggle featured</button>
               </form>
             </td>
           </tr>
