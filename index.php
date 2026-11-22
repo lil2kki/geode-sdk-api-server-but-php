@@ -5,6 +5,7 @@ define('DATA_DIR', __DIR__ . '/data');
 define('SESSION_COOKIE', 'ogi_session');
 define('ACCESS_TOKEN_TTL', 60 * 60 * 24 * 7);
 define('REFRESH_TOKEN_TTL', 60 * 60 * 24 * 30);
+// [PATCH] Set DEBUG true only locally — enables pretty-print JSON and verbose errors
 define('DEBUG', false);
 define('MAX_UPLOAD_BYTES', 120 * 1024 * 1024);
 define('UPSTREAM_CACHE_TTL', 300);
@@ -2152,7 +2153,11 @@ function render_ui() {
                 ">
                     You can post <a data-bs-toggle="tooltip" data-bs-placement="top" title="" style="cursor: help;" data-original-title="Even reuploads, unauthorised ports and updates, Side-B mod versions, AI slop, cheats, exploits and experiments" class="btn-link theme-primary">anything</a> you want but malware, pls provide us valid GitHub Repository cuz logo loading form it (user/repo/HEAD/logo.png)<br><br>You also can upload not your mods, but it would be sweet if you go to mod page and change developer displayname on real one instead you.<br><br>If you are developer and ownership of your repository was taken pls <a target="_blank" href="https://github.com/lil2kki/Open-Geode-Index/issues/new">send report here</a> so i give you access.
                 </p>
-                <form method="post" action="/v1/mods" class="h-100">
+                <form method="post" id="post-mod-form" action="/v1/mods" class="h-100" style="
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: flex-end;
+                ">
                     <input type="hidden" name="csrf" value="<?=htmlspecialchars(CSRF_TOKEN, ENT_QUOTES)?>">
                     <div class="form-group">
                         <label for="repo">Repository (user/repo)</label>
@@ -2164,7 +2169,24 @@ function render_ui() {
                     </div>
                     <button class="w-100 btn btn-primary">Submit</button>
                 </form>
-                <?=asAPIReqForm()?>
+                <script>
+                    (() => {
+                        const form = document.currentScript.previousElementSibling;
+                        const update = () => {
+                            const children = [...form.children];
+                            const contentHeight = children.reduce(
+                                (sum, el) => sum + el.getBoundingClientRect().height,
+                                0
+                            );
+                            const freeSpace = form.clientHeight - contentHeight;
+                            form.style.justifyContent = freeSpace > 80 ? 'flex-start' : 'flex-end';
+                        };
+                        new ResizeObserver(update).observe(form);
+                        new ResizeObserver(update).observe(form.parentElement);
+                        update();
+                    })();
+                </script>
+                <?=asAPIReqForm('#post-mod-form')?>
             <?php endif; ?>
         </div>
 
