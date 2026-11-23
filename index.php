@@ -86,6 +86,9 @@ function csrf_check_if_session() {
     }
 
     if (!is_string($sent) || $sent === '' || !hash_equals(CSRF_TOKEN, $sent)) {
+        if (function_exists('is_browser_form_request') && is_browser_form_request()) {
+            publish_form_response(['error' => 'CSRF token mismatch. Reload the page and submit again.', 'payload' => null], 403);
+        }
         json_response(['error' => 'CSRF token mismatch', 'payload' => null], 403);
     }
 }
@@ -220,7 +223,10 @@ function resolve_relative_url($base_url, $location) {
 function open_remote_stream($url, $timeout = 20, $max_redirects = 8) {
     $current = trim((string)$url);
     for ($redirect = 0; $redirect <= $max_redirects; $redirect++) {
-        if (!is_safe_url($current)) return null;
+        if (!is_safe_url($current)) {
+            $GLOBALS['OGI_REMOTE_FETCH_ERROR'] = 'The download URL or one of its redirects failed the public URL safety check.';
+            return null;
+        }
 
         $context = stream_context_create([
             'http' => [
@@ -237,22 +243,34 @@ function open_remote_stream($url, $timeout = 20, $max_redirects = 8) {
 
         unset($http_response_header);
         $stream = @fopen($current, 'rb', false, $context);
-        if ($stream === false) return null;
+        if ($stream === false) {
+            $last = error_get_last();
+            $detail = is_array($last) && !empty($last['message']) ? ': ' . clean_utf8((string)$last['message']) : '';
+            $GLOBALS['OGI_REMOTE_FETCH_ERROR'] = 'Could not connect to the download URL (DNS, TLS, network or host restriction)' . $detail;
+            return null;
+        }
         $headers = isset($http_response_header) ? $http_response_header : [];
         $status = response_status_from_headers($headers);
 
         if ($status !== null && in_array($status, [301, 302, 303, 307, 308], true)) {
             $location = response_header_value($headers, 'Location');
             fclose($stream);
-            if ($location === null || $redirect >= $max_redirects) return null;
+            if ($location === null || $redirect >= $max_redirects) {
+                $GLOBALS['OGI_REMOTE_FETCH_ERROR'] = 'The download redirect is missing or exceeded the redirect limit.';
+                return null;
+            }
             $next = resolve_relative_url($current, $location);
-            if ($next === null || !is_safe_url($next)) return null;
+            if ($next === null || !is_safe_url($next)) {
+                $GLOBALS['OGI_REMOTE_FETCH_ERROR'] = 'The download redirected to an invalid or blocked host.';
+                return null;
+            }
             $current = $next;
             continue;
         }
 
         if ($status === null || $status < 200 || $status >= 300) {
             fclose($stream);
+            $GLOBALS['OGI_REMOTE_FETCH_ERROR'] = 'The download host returned HTTP ' . ($status === null ? 'without a valid status' : $status) . '.';
             return null;
         }
         return ['stream' => $stream, 'url' => $current, 'status' => $status, 'headers' => $headers];
@@ -411,15 +429,38 @@ function fetch_remote_file_to_temp($url, $max_bytes = MAX_UPLOAD_BYTES, $timeout
     $content_length = response_header_value($remote['headers'], 'Content-Length');
     if ($content_length !== null && ctype_digit($content_length) && (int)$content_length > $max_bytes) {
         fclose($remote['stream']);
+        $GLOBALS['OGI_REMOTE_FETCH_ERROR'] = 'The .geode archive is larger than the configured 120 MiB inspection limit.';
         return null;
     }
 
-    $tmp = @tempnam(sys_get_temp_dir(), 'ogi_');
-    if ($tmp === false) { fclose($remote['stream']); return null; }
+    $temp_dir = DATA_DIR . '/tmp';
+    if (!is_dir($temp_dir) && !@mkdir($temp_dir, 0700, true) && !is_dir($temp_dir)) {
+        fclose($remote['stream']);
+        $GLOBALS['OGI_REMOTE_FETCH_ERROR'] = 'Cannot create the private data/tmp directory. Check DATA_DIR permissions.';
+        error_log('[OGI] ' . $GLOBALS['OGI_REMOTE_FETCH_ERROR']);
+        return null;
+    }
+    @chmod($temp_dir, 0700);
+    if (!is_writable($temp_dir)) {
+        fclose($remote['stream']);
+        $GLOBALS['OGI_REMOTE_FETCH_ERROR'] = 'The private data/tmp directory is not writable.';
+        error_log('[OGI] ' . $GLOBALS['OGI_REMOTE_FETCH_ERROR']);
+        return null;
+    }
+    $tmp = @tempnam($temp_dir, 'ogi_');
+    if ($tmp === false || realpath(dirname($tmp)) !== realpath($temp_dir)) {
+        if (is_string($tmp) && $tmp !== '') @unlink($tmp);
+        fclose($remote['stream']);
+        $GLOBALS['OGI_REMOTE_FETCH_ERROR'] = 'Cannot create a temporary file in the private data/tmp directory.';
+        error_log('[OGI] ' . $GLOBALS['OGI_REMOTE_FETCH_ERROR']);
+        return null;
+    }
+    @chmod($tmp, 0600);
     $out = @fopen($tmp, 'wb');
     if ($out === false) {
         fclose($remote['stream']);
         @unlink($tmp);
+        $GLOBALS['OGI_REMOTE_FETCH_ERROR'] = 'Cannot open the temporary archive for writing.';
         return null;
     }
 
@@ -444,6 +485,7 @@ function fetch_remote_file_to_temp($url, $max_bytes = MAX_UPLOAD_BYTES, $timeout
     fclose($out);
     if ($failed || $read === 0) {
         @unlink($tmp);
+        $GLOBALS['OGI_REMOTE_FETCH_ERROR'] = $read === 0 ? 'The download returned an empty file.' : 'The download was interrupted or could not be written to disk.';
         return null;
     }
     return $tmp;
@@ -519,56 +561,87 @@ function extract_metadata_from_geode($download_url) {
     }
 }
 
-function fetch_github_repo_metadata($repo) {
+function github_release_tag_from_download_url($repo, $download_url) {
+    if (!is_string($download_url) || $download_url === '') return null;
+    $parts = @parse_url($download_url);
+    if (!is_array($parts)) return null;
+    $host = strtolower((string)($parts['host'] ?? ''));
+    if (!in_array($host, ['github.com', 'www.github.com'], true)) return null;
+
+    $path = (string)($parts['path'] ?? '');
+    $repo_pattern = preg_quote($repo, '#');
+    if (!preg_match('#^/' . $repo_pattern . '/releases/download/([^/]+)/[^/]+$#i', $path, $match)) return null;
+    $tag = rawurldecode($match[1]);
+    if ($tag === '' || strlen($tag) > 128 || preg_match('/[\x00-\x20\x7f]/', $tag)) return null;
+    return $tag;
+}
+
+function fetch_github_repo_metadata($repo, $preferred_ref = null) {
     $repo = normalize_github_repo($repo);
     if ($repo === null) return null;
 
-    $modjson = fetch_github_raw_json($repo, 'mod.json');
-    if (!is_array($modjson)) return null;
+    $refs = [];
+    if (is_string($preferred_ref) && $preferred_ref !== '') $refs[] = $preferred_ref;
+    $refs[] = 'HEAD';
+    $refs = array_values(array_unique($refs));
 
-    $about = fetch_github_raw_text($repo, 'about.md');
-    if ($about === null || trim($about) === '') $about = fetch_github_raw_text($repo, 'README.md');
-    if ($about === null || trim($about) === '') $about = fetch_github_raw_text($repo, 'readme.md');
-    $changelog = fetch_github_raw_text($repo, 'changelog.md');
-    if ($changelog === null || trim($changelog) === '') $changelog = fetch_github_raw_text($repo, 'CHANGELOG.md');
+    foreach ($refs as $ref) {
+        $modjson = fetch_github_raw_json($repo, 'mod.json', $ref);
+        if (!is_array($modjson)) continue;
 
-    return [
-        'modjson' => $modjson,
-        'about' => $about !== false ? $about : null,
-        'changelog' => $changelog !== false ? $changelog : null,
-        'modjson_error' => null,
-        'source' => 'github_repository',
-    ];
+        $about = fetch_github_raw_text($repo, 'about.md', $ref);
+        if ($about === null || trim($about) === '') $about = fetch_github_raw_text($repo, 'README.md', $ref);
+        if ($about === null || trim($about) === '') $about = fetch_github_raw_text($repo, 'readme.md', $ref);
+        $changelog = fetch_github_raw_text($repo, 'changelog.md', $ref);
+        if ($changelog === null || trim($changelog) === '') $changelog = fetch_github_raw_text($repo, 'CHANGELOG.md', $ref);
+
+        return [
+            'modjson' => $modjson,
+            'about' => $about !== false ? $about : null,
+            'changelog' => $changelog !== false ? $changelog : null,
+            'modjson_error' => null,
+            'source' => 'github_repository',
+            'repository_ref' => $ref,
+        ];
+    }
+    return null;
 }
 
 function fetch_github_release_sha256($repo, $download_url) {
     $repo = normalize_github_repo($repo);
     if ($repo === null || !is_string($download_url) || $download_url === '') return null;
-    $api_url = 'https://api.github.com/repos/' . $repo . '/releases?per_page=20';
-    $context = stream_context_create(['http' => [
-        'method' => 'GET',
-        'header' => "User-Agent: Open-Geode-Index/2.0\r\nAccept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\n",
-        'timeout' => 8,
-        'ignore_errors' => true,
-    ]]);
-    $raw = @file_get_contents($api_url, false, $context);
-    if (!is_string($raw) || strlen($raw) > 4 * 1024 * 1024) return null;
-    $releases = json_decode($raw, true);
-    if (!is_array($releases)) return null;
 
-    foreach ($releases as $release) {
-        foreach (($release['assets'] ?? []) as $asset) {
-            $asset_url = (string)($asset['browser_download_url'] ?? '');
-            $asset_name = (string)($asset['name'] ?? '');
-            if ($asset_url !== $download_url) continue;
-            $digest = (string)($asset['digest'] ?? '');
-            if (preg_match('/^sha256:([a-f0-9]{64})$/i', $digest, $match)) return strtolower($match[1]);
+    $api_urls = [];
+    $tag = github_release_tag_from_download_url($repo, $download_url);
+    if ($tag !== null) $api_urls[] = 'https://api.github.com/repos/' . $repo . '/releases/tags/' . rawurlencode($tag);
+    $api_urls[] = 'https://api.github.com/repos/' . $repo . '/releases?per_page=100';
+
+    foreach (array_unique($api_urls) as $api_url) {
+        $context = stream_context_create(['http' => [
+            'method' => 'GET',
+            'header' => "User-Agent: Open-Geode-Index/2.0\r\nAccept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\n",
+            'timeout' => 8,
+            'ignore_errors' => true,
+        ]]);
+        $raw = @file_get_contents($api_url, false, $context);
+        if (!is_string($raw) || strlen($raw) > 4 * 1024 * 1024) continue;
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) continue;
+        $releases = isset($decoded['assets']) ? [$decoded] : $decoded;
+
+        foreach ($releases as $release) {
+            foreach (($release['assets'] ?? []) as $asset) {
+                if ((string)($asset['browser_download_url'] ?? '') !== $download_url) continue;
+                $digest = (string)($asset['digest'] ?? '');
+                if (preg_match('/^sha256:([a-f0-9]{64})$/i', $digest, $match)) return strtolower($match[1]);
+            }
         }
     }
     return null;
 }
 
 function inspect_remote_geode_with_repo_fallback($download_url, $repo) {
+    // One download is used for both ZIP metadata extraction and the required SHA-256.
     $inspection = inspect_remote_geode($download_url);
     if (empty($inspection['error'])) {
         $inspection['metadata_source'] = 'geode_archive';
@@ -576,35 +649,41 @@ function inspect_remote_geode_with_repo_fallback($download_url, $repo) {
         return $inspection;
     }
 
-    // A large release asset may exceed the host's download limit. In that case,
-    // recover descriptive metadata from the source repository instead of
-    // rejecting an otherwise valid submission outright.
-    $repo_metadata = fetch_github_repo_metadata($repo);
-    if (is_array($repo_metadata) && !empty($repo_metadata['modjson'])) {
-        $modjson = $repo_metadata['modjson'];
-        if (!is_array($modjson) || empty($modjson['id']) || !is_scalar($modjson['id'])) {
-            return ['error' => 'The repository mod.json is missing a valid id. Add a valid mod.json to the repository or use a smaller .geode release asset.'];
+    $repo = normalize_github_repo($repo);
+    if ($repo !== null) {
+        $release_tag = github_release_tag_from_download_url($repo, $download_url);
+        $repo_metadata = fetch_github_repo_metadata($repo, $release_tag);
+        if (is_array($repo_metadata) && !empty($repo_metadata['modjson']) &&
+            !empty($repo_metadata['modjson']['id']) && is_scalar($repo_metadata['modjson']['id'])) {
+            $release_hash = fetch_github_release_sha256($repo, $download_url);
+            if ($release_hash !== null) {
+                return [
+                    'metadata' => $repo_metadata,
+                    'hash' => $release_hash,
+                    'metadata_source' => 'github_repository',
+                    'metadata_warning' => 'The archive could not be inspected directly. Metadata and the asset SHA-256 were recovered from GitHub.',
+                    'inspection_warning' => $inspection['error'],
+                ];
+            }
+
+            return [
+                'error' => 'The .geode archive could not be inspected: ' . $inspection['error'] . ' The repository metadata was found, but GitHub does not provide a SHA-256 digest for this release asset. The index cannot publish a usable Geode version without the archive checksum. Fix the server data/tmp permissions or provide an accessible .geode file.',
+            ];
         }
-        $release_hash = fetch_github_release_sha256($repo, $download_url);
-        return [
-            'metadata' => $repo_metadata,
-            // Prefer GitHub's published asset digest; otherwise keep hash null.
-            'hash' => $release_hash,
-            'metadata_source' => 'github_repository',
-            'metadata_warning' => 'The .geode archive could not be inspected by this server. Mod information was recovered from the GitHub repository.' . ($release_hash === null ? ' SHA-256 could not be verified.' : ' SHA-256 was recovered from GitHub release asset metadata.'),
-            'inspection_warning' => $inspection['error'],
-        ];
     }
 
-    return [
-        'error' => $inspection['error'] . ' Also tried reading mod.json/about/changelog from the GitHub repository, but no valid repository metadata was found. Make sure the repository contains a valid mod.json in its root.',
-    ];
+    $reason = $inspection['error'];
+    if ($repo !== null) $reason .= ' Also could not read a valid mod.json from the GitHub release tag or repository root.';
+    return ['error' => $reason];
 }
 
 function inspect_remote_geode($download_url) {
     if (!class_exists('ZipArchive')) return ['error' => 'PHP ZipArchive extension is not installed'];
     $tmp = fetch_remote_file_to_temp($download_url);
-    if ($tmp === null) return ['error' => 'Could not download the .geode file. Check the URL, redirect target, server access and the 120 MiB size limit'];
+    if ($tmp === null) {
+        $reason = $GLOBALS['OGI_REMOTE_FETCH_ERROR'] ?? 'The remote archive could not be downloaded.';
+        return ['error' => 'Could not download the .geode file: ' . $reason];
+    }
 
     try {
         $hash = @hash_file('sha256', $tmp);
@@ -1224,16 +1303,21 @@ function iso8601_utc($ts = null) {
     return gmdate('Y-m-d\TH:i:s\Z', (int)$ts);
 }
 
-function fetch_github_raw_json($repo, $path) {
-    $url = "https://raw.githubusercontent.com/{$repo}/HEAD/{$path}";
+function fetch_github_raw_json($repo, $path, $ref = 'HEAD') {
+    $ref = trim((string)$ref);
+    if ($ref === '' || preg_match('/[\x00-\x20\x7f]/', $ref)) return null;
+    $url = "https://raw.githubusercontent.com/{$repo}/" . rawurlencode($ref) . "/{$path}";
     $opts = ['http' => ['method' => 'GET', 'header' => "User-Agent: Open-Geode-Index\r\nAccept: application/json\r\n", 'timeout' => 8]];
     $res = @file_get_contents($url, false, stream_context_create($opts));
     if ($res === false) return null;
-    return json_decode($res, true) ?: null;
+    $decoded = json_decode($res, true);
+    return json_last_error() === JSON_ERROR_NONE && is_array($decoded) ? $decoded : null;
 }
 
-function fetch_github_raw_text($repo, $path) {
-    $url = "https://raw.githubusercontent.com/{$repo}/HEAD/{$path}";
+function fetch_github_raw_text($repo, $path, $ref = 'HEAD') {
+    $ref = trim((string)$ref);
+    if ($ref === '' || preg_match('/[\x00-\x20\x7f]/', $ref)) return null;
+    $url = "https://raw.githubusercontent.com/{$repo}/" . rawurlencode($ref) . "/{$path}";
     $opts = ['http' => ['method' => 'GET', 'header' => "User-Agent: Open-Geode-Index\r\nAccept: text/plain\r\n", 'timeout' => 8]];
     $res = @file_get_contents($url, false, stream_context_create($opts));
     return $res === false ? null : $res;
@@ -1619,30 +1703,57 @@ function api_mods_index() {
     json_response(['error' => '', 'payload' => ['data' => $public, 'count' => $count]]);
 }
 
+function is_browser_form_request() {
+    if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST') return false;
+    $mode = strtolower((string)($_SERVER['HTTP_SEC_FETCH_MODE'] ?? ''));
+    $dest = strtolower((string)($_SERVER['HTTP_SEC_FETCH_DEST'] ?? ''));
+    if ($mode === 'navigate' || $dest === 'document') return true;
+    $accept = strtolower((string)($_SERVER['HTTP_ACCEPT'] ?? ''));
+    return strpos($accept, 'text/html') !== false && strpos($accept, 'application/json') === false;
+}
+
+function publish_form_response($response, $status = 200) {
+    if (is_browser_form_request()) {
+        $error = is_array($response) ? (string)($response['error'] ?? '') : 'Unknown publishing response';
+        $payload = is_array($response['payload'] ?? null) ? $response['payload'] : [];
+        if ($error !== '') {
+            $flash = ['type' => 'danger', 'message' => $error];
+        } elseif (($payload['metadata_source'] ?? '') === 'github_repository') {
+            $flash = ['type' => 'warning', 'message' => 'Mod published. Metadata and SHA-256 were recovered from GitHub release information.'];
+        } else {
+            $flash = ['type' => 'success', 'message' => 'Mod published successfully. The .geode archive was inspected and its SHA-256 was calculated.'];
+        }
+        $_SESSION['ogi_publish_flash'] = $flash;
+        header('Location: /ui', true, 303);
+        exit;
+    }
+    return json_response($response, $status);
+}
+
 function api_mods_create() {
     if (!require_auth()) return;
     $user = current_user();
     $body = json_input();
-    if (!is_array($body) || !$body) return json_response(['error' => request_input_error('bad request - empty body'), 'payload' => null], 400);
+    if (!is_array($body) || !$body) return publish_form_response(['error' => request_input_error('bad request - empty body'), 'payload' => null], 400);
 
-    if (!isset($body['download_link']) || !is_scalar($body['download_link'])) return json_response(['error' => 'download_link is required and must be text', 'payload' => null], 400);
+    if (!isset($body['download_link']) || !is_scalar($body['download_link'])) return publish_form_response(['error' => 'download_link is required and must be text', 'payload' => null], 400);
     $download_link = trim((string)$body['download_link']);
-    if ($download_link === '') return json_response(['error' => 'download_link is required', 'payload' => null], 400);
-    if (!is_safe_url($download_link)) return json_response(['error' => 'download_link must be a public HTTP(S) URL', 'payload' => null], 400);
+    if ($download_link === '') return publish_form_response(['error' => 'download_link is required', 'payload' => null], 400);
+    if (!is_safe_url($download_link)) return publish_form_response(['error' => 'download_link must be a public HTTP(S) URL', 'payload' => null], 400);
 
     $repo = normalize_github_repo($body['repo'] ?? '');
-    if (!empty($body['repo']) && $repo === null) return json_response(['error' => 'repo must be a valid GitHub owner/repository path', 'payload' => null], 400);
+    if (!empty($body['repo']) && $repo === null) return publish_form_response(['error' => 'repo must be a valid GitHub owner/repository path', 'payload' => null], 400);
 
     $inspection = inspect_remote_geode_with_repo_fallback($download_link, $repo);
     if (!empty($inspection['error'])) {
         $status = strpos($inspection['error'], 'ZipArchive') !== false ? 503 : 400;
-        return json_response(['error' => $inspection['error'], 'payload' => null], $status);
+        return publish_form_response(['error' => $inspection['error'], 'payload' => null], $status);
     }
     $metadata = $inspection['metadata'];
     $modjson = $metadata['modjson'];
 
     $mod_id = !empty($modjson['id']) && is_scalar($modjson['id']) ? (string)$modjson['id'] : $repo;
-    if (!valid_mod_id($mod_id)) return json_response(['error' => 'The mod.json id is missing or invalid', 'payload' => null], 400);
+    if (!valid_mod_id($mod_id)) return publish_form_response(['error' => 'The mod.json id is missing or invalid', 'payload' => null], 400);
 
     $mod_name = !empty($modjson['name']) && is_scalar($modjson['name']) ? clean_utf8((string)$modjson['name']) : $mod_id;
     $mod_tags = [];
@@ -1650,12 +1761,12 @@ function api_mods_create() {
         foreach ($modjson['tags'] as $tag) if (is_string($tag) && trim($tag) !== '') $mod_tags[] = text_width(trim($tag), 48, '');
     }
     $initial_version = normalize_version($body['version'] ?? ($modjson['version'] ?? null)) ?: '1.0.0';
-    if (!valid_version_string($initial_version)) return json_response(['error' => 'Invalid version string in request or mod.json', 'payload' => null], 400);
+    if (!valid_version_string($initial_version)) return publish_form_response(['error' => 'Invalid version string in request or mod.json', 'payload' => null], 400);
 
     $mods = db_read('mods.json');
     if (!is_array($mods)) $mods = [];
     foreach ($mods as $existing) if (is_array($existing) && ($existing['id'] ?? null) === $mod_id) {
-        return json_response(['error' => 'mod already exists (by id)', 'payload' => null], 409);
+        return publish_form_response(['error' => 'mod already exists (by id)', 'payload' => null], 409);
     }
 
     $now = iso8601_utc();
@@ -1711,9 +1822,9 @@ function api_mods_create() {
     ];
 
     $mods[] = $mod;
-    if (!db_write('mods.json', $mods)) return json_response(['error' => 'Could not save mod: data directory is not writable', 'payload' => null], 500);
+    if (!db_write('mods.json', $mods)) return publish_form_response(['error' => 'Could not save mod: data directory is not writable', 'payload' => null], 500);
     api_log('mod.create', ['id' => $mod_id, 'version' => $initial_version]);
-    json_response(['error' => '', 'payload' => mod_for_public($mod)], 201);
+    publish_form_response(['error' => '', 'payload' => mod_for_public($mod)], 201);
 }
 
 function api_mods_get($id) {
@@ -2426,7 +2537,7 @@ form.addEventListener('submit', async function(event) {
     const originalDisabled = button ? button.disabled : false;
     if (button) button.disabled = true;
     const status = form.querySelector('[role="status"]');
-    if (status) status.textContent = 'Submitting… checking the .geode archive and repository metadata.';
+    if (status) status.textContent = 'Reading mod metadata and calculating the package checksum…';
     try {
         const response = await fetch(form.action, {
             method: (form.method || 'POST').toUpperCase(),
@@ -2445,8 +2556,9 @@ form.addEventListener('submit', async function(event) {
         }
         if (!response.ok) throw new Error((data && data.error) || ('HTTP ' + response.status));
         if (data && data.error) throw new Error(data.error);
-        if (status) status.textContent = (data && data.payload && data.payload.metadata_source === 'github_repository') ? 'Published using repository metadata. Archive hash was not verified.' : 'Published successfully.';
-        alert((data && data.payload && data.payload.metadata_source === 'github_repository') ? 'Published! Metadata was recovered from GitHub. The archive hash could not be verified because the file exceeded the server limit or was unreachable.' : 'Request successful :D');
+        const fromRepository = data && data.payload && data.payload.metadata_source === 'github_repository';
+        if (status) status.textContent = fromRepository ? 'Published using GitHub release metadata and its SHA-256 digest.' : 'Published successfully. The .geode archive was inspected.';
+        alert(fromRepository ? 'Published successfully. Mod information and SHA-256 were recovered from GitHub release metadata.' : 'Published successfully. The .geode archive was inspected and its SHA-256 was calculated.');
         window.location.reload();
     } catch (error) {
         alert('Error: ' + (error && error.message ? error.message : 'Request failed'));
@@ -2667,6 +2779,8 @@ function render_oauth_success($username, array $tokens) {
 function render_ui() {
     $stats = api_stats_payload();
     $user = current_user();
+    $publish_flash = $_SESSION['ogi_publish_flash'] ?? null;
+    unset($_SESSION['ogi_publish_flash']);
     ui_header('Open Geode Index');
     ?>
     <style>
@@ -2706,6 +2820,10 @@ function render_ui() {
             <p><a class="btn btn-primary w-100 py-1" href="https://github.com/lil2kki/Open-Geode-Index#how-to-install" target="_blank">Download proxy mod for Geode Loader!</a></p>
             <h3>Submit a mod</h3>
             <hr class="my-1 mb-3">
+            <?php if (is_array($publish_flash) && !empty($publish_flash['message'])): ?>
+                <?php $flash_type = in_array(($publish_flash['type'] ?? ''), ['success', 'warning', 'danger'], true) ? $publish_flash['type'] : 'info'; ?>
+                <div class="alert alert-<?=$flash_type?> py-2" role="alert"><?=htmlspecialchars((string)$publish_flash['message'], ENT_QUOTES, 'UTF-8')?></div>
+            <?php endif; ?>
             <?php if (!$user): ?>
                 <div class="alert alert-warning">Please <a href="/login">sign in with GitHub</a> to submit mods.</div>
             <?php else: ?>
@@ -2723,7 +2841,7 @@ function render_ui() {
                     <input type="hidden" name="csrf" value="<?=htmlspecialchars(CSRF_TOKEN, ENT_QUOTES)?>">
                     <div class="form-group">
                         <label for="repo" data-bs-toggle="tooltip" data-bs-placement="top" title="" style="cursor: help;" 
-                            data-original-title="If the archive is too large for the server to inspect, the index will try to read mod.json, README/about and changelog from this repository. The release link is still required."
+                            data-original-title="If the server cannot inspect the .geode archive, the index can read mod.json, README/about and changelog from this repository. A valid SHA-256 is still required for Geode downloads."
                         >Repository (user/repo)</label>
                         <input id="repo" name="repo" class="form-control" placeholder="lil2kki/mod" required>
                     </div>
@@ -2764,8 +2882,8 @@ function render_ui() {
                     <div class="col-lg-4 col-xxl-3">
                         <select id="mod-sort" class="form-select form-select-sm">
                             <option value="downloads">Sort: Downloads</option>
-                            <option value="recently_updated">Sort: Recently updated</option>
-                            <option value="recently_published" selected>Sort: Recently published</option>
+                            <option value="recently_updated" selected>Sort: Recently updated</option>
+                            <option value="recently_published">Sort: Recently published</option>
                             <option value="name">Sort: IDs A-Z</option>
                             <option value="name_reverse">Sort: IDs Z-A</option>
                             <option value="oldest">Sort: Oldest</option>
@@ -2816,7 +2934,7 @@ function render_ui() {
 
     <script>
     (function() {
-        const state = { query: '', tags: [], sort: 'recently_published', perPage: 6, page: 1, total: 0, data: [], loading: false, availableTags: [] };
+        const state = { query: '', tags: [], sort: 'recently_updated', perPage: 6, page: 1, total: 0, data: [], loading: false, availableTags: [] };
         const grid = document.getElementById('mods-grid');
         const searchInput = document.getElementById('mod-search');
         const sortSelect = document.getElementById('mod-sort');
